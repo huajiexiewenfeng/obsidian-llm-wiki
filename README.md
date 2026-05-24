@@ -1,66 +1,191 @@
-# obsidian-llm-wiki
+# Obsidian LLM Wiki
 
-AI-assisted Obsidian LLM Wiki workflow for organizing, ingesting, maintaining, and querying personal knowledge bases.
+AI-assisted Obsidian LLM Wiki skills for organizing existing vaults, ingesting external documents, maintaining wiki health, and querying a personal knowledge base.
 
-This repository is not an Obsidian plugin. It is a set of Codex/agent skills and workflow documents for turning an existing Obsidian vault, plus external document folders, into a safer and more useful LLM-facing knowledge wiki.
+English | [简体中文](./README.zh.md)
 
-## Why This Exists
+## What Is This?
 
-Many personal knowledge bases are not clean, new systems. They usually contain:
+Obsidian LLM Wiki is a workflow and skill set for turning an existing Obsidian vault into a safer, more structured, AI-readable knowledge wiki.
 
-- existing Obsidian notes with uneven structure
-- project notes, meeting notes, drafts, exports, PDFs, Word files, spreadsheets, and code docs
-- external folders that should be indexed before anything is copied
-- sensitive material that should never be blindly summarized into a wiki
-
-`obsidian-llm-wiki` provides a cautious workflow:
+It is not an Obsidian plugin. It is a set of Codex/agent skills and workflow documents that help an AI assistant work with your vault in a controlled way:
 
 ```text
 initialize -> ingest -> maintain -> query
 ```
 
-## First-Version Skills
+The goal is not to dump every file into Obsidian. The goal is to build a careful knowledge layer on top of your real notes, project files, and external folders.
 
-| Skill | Purpose |
+## Why It Exists
+
+Most personal knowledge bases are messy in real life:
+
+- 60% of useful material may already live in Obsidian.
+- The rest may be scattered across Downloads, project folders, meeting exports, PDFs, Word files, spreadsheets, and code repositories.
+- Some files are useful as references but should not be copied into the vault.
+- Some files contain secrets, internal addresses, credentials, customer data, or production logs.
+
+Obsidian LLM Wiki is designed for that reality.
+
+It starts with inventory and confirmation, then turns selected material into wiki pages such as topics, sources, projects, entities, SOPs, and checklists.
+
+## Core Architecture
+
+The first version uses four skills:
+
+| Skill | Use When |
 |---|---|
-| `obsidian-wiki-init` | Initialize or adopt an Obsidian vault, create a wiki control center, inventory the vault, and establish rules. |
-| `obsidian-wiki-ingest` | Convert existing vault content or external folders into wiki pages, with external files indexed by path by default. |
-| `obsidian-wiki-maintain` | Run health checks for broken links, orphan pages, index/log drift, missing pages, and sensitive information spread. |
-| `obsidian-wiki-query` | Answer questions from the wiki, summarize knowledge, generate outlines, and suggest durable pages to save. |
+| `obsidian-wiki-init` | Initialize or adopt an Obsidian vault, create a wiki control center, inventory the vault, and establish rules |
+| `obsidian-wiki-ingest` | Organize existing vault folders or ingest external files and directories into wiki pages |
+| `obsidian-wiki-maintain` | Run health checks for broken links, orphan pages, index/log drift, missing pages, and sensitive information spread |
+| `obsidian-wiki-query` | Answer questions from the wiki, summarize knowledge, generate outlines, and suggest durable pages to save |
 
-## Repository Layout
+The skills are intentionally split by user intent:
 
 ```text
-docs/
-  architecture.md
-  workflow.md
-  safety.md
-  development-plan.md
+init      = prepare the vault
+ingest    = turn material into wiki pages
+maintain  = keep the wiki healthy
+query     = use the wiki for answers and synthesis
+```
+
+## External Document Ingestion
+
+External folders are handled cautiously.
+
+The default mode is path indexing:
+
+```text
+scan external paths
+-> classify files by topic, type, risk, and value
+-> generate an ingestion plan
+-> wait for confirmation
+-> process only approved material
+```
+
+Supported modes:
+
+| Mode | Behavior | Copies Files Into Vault |
+|---|---|---|
+| Path index | Record where files are, what they are, and how they should be handled | No |
+| Summary ingest | Read approved content and create source/topic/project pages | Optional |
+| Archive import | Copy approved files into `raw/`, then process them | Yes |
+
+External files are never copied into `raw/` by default.
+
+## Safety Model
+
+All skills follow the same safety stance:
+
+- Do not delete or move user files.
+- Do not rewrite original notes unless explicitly requested.
+- Do not copy external files into the vault by default.
+- Do not copy API keys, tokens, passwords, AK/SK pairs, cookies, private keys, certificates, RTSP credentials, internal endpoints, customer data, or production logs into generated wiki pages.
+- Treat suspicious files as path-level references until confirmed.
+- Ask before reading PDFs, Word files, spreadsheets, archives, or sensitive-looking folders deeply.
+
+Generated wiki pages should preserve knowledge structure, not secrets.
+
+## Installation
+
+Install with Skills CLI:
+
+```bash
+npx skills add huajiexiewenfeng/obsidian-llm-wiki
+```
+
+For local development from the repository root:
+
+```bash
+npx skills add .
+```
+
+After installation, restart Codex or your agent runtime so the skills can be rediscovered.
+
+## Usage Examples
+
+Use it naturally:
+
+```text
+Initialize the current Obsidian vault as an LLM Wiki.
+```
+
+```text
+Only scan the vault folder structure and file types. Do not read note bodies yet.
+```
+
+```text
+Scan D:\资料 and D:\Downloads and create an ingestion plan. Do not copy anything into the vault yet.
+```
+
+```text
+Ingest this confirmed PDF as a source summary and update relevant topic or project pages.
+```
+
+```text
+Run a health check on the current wiki and report Errors, Warnings, and Info.
+```
+
+```text
+Based on the current wiki, summarize the video stream low-latency troubleshooting path.
+```
+
+Or force a specific skill:
+
+```text
+Use obsidian-wiki-ingest to scan these external folders in path-index mode.
+```
+
+```text
+Use obsidian-wiki-query to answer this from my Obsidian wiki.
+```
+
+## How to Know It Is Working
+
+Obsidian LLM Wiki is working when:
+
+- Existing notes are not moved or rewritten without permission.
+- External folders are scanned and planned before files are copied or summarized.
+- Sensitive values are not reproduced in generated wiki pages.
+- `index.md` becomes the main navigation entry for the wiki.
+- Source pages explain where material came from and how it was handled.
+- Topic, project, entity, and SOP pages become easier to query than raw scattered notes.
+- Health checks produce clear Errors, Warnings, and Info instead of vague advice.
+- Query answers cite wiki pages and state evidence gaps.
+
+## Project Structure
+
+```text
 skills/
   obsidian-wiki-init/
   obsidian-wiki-ingest/
   obsidian-wiki-maintain/
   obsidian-wiki-query/
+
+docs/
+  architecture.md
+  workflow.md
+  safety.md
+  development-plan.md
+
+tests/
+  prompts.md
 ```
 
-Each skill has a `SKILL.md` file and a small `references/` folder. The skill files are intentionally instruction-first. Scripts can be added later for deterministic tasks such as directory scanning, link checking, and sensitive-pattern checks.
+## Documentation
 
-## Default Safety Position
-
-- Do not delete or move user files.
-- Do not copy external files into the vault by default.
-- Treat external folders as untrusted until scanned and confirmed.
-- Never copy secrets, tokens, credentials, cookies, private endpoints, production logs, or customer data into generated wiki pages.
-- Prefer path-level indexing before summary ingestion.
-- Copy files into `raw/` only after explicit user confirmation.
-
-## Typical Usage
-
-1. Use `obsidian-wiki-init` to adopt an existing vault and create the wiki control center.
-2. Use `obsidian-wiki-ingest` to scan vault folders, `raw/`, or external directories and create source/topic/project/entity/SOP pages.
-3. Use `obsidian-wiki-maintain` to check wiki health and repair structure after confirmation.
-4. Use `obsidian-wiki-query` to answer questions from the wiki and save durable outputs.
+- [Architecture](docs/architecture.md)
+- [Workflow](docs/workflow.md)
+- [Safety](docs/safety.md)
+- [Development Plan](docs/development-plan.md)
+- [Test Prompts](tests/prompts.md)
 
 ## Status
 
-This is the first documentation-based MVP. The current goal is to make the skill boundaries, workflows, output formats, and safety rules clear before adding automation scripts.
+This project is in an early documentation-based MVP stage.
+
+The current focus is to make the skill boundaries, workflows, output formats, and safety rules clear. Scripts for deterministic tasks such as directory scanning, link checking, sensitive-pattern checks, and report generation may be added after the manual workflow is stable.
+
+## License
+
+MIT
