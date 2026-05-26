@@ -31,7 +31,9 @@ read requested source path(s)
   -> generate an ingestion plan
   -> wait for user confirmation
   -> process approved material
-  -> create or update wiki pages
+  -> update top-level ingest/index.md
+  -> create or update source proxy nodes
+  -> create or update topic/project/entity/SOP links
   -> update index.md and log.md
   -> write an ingestion report
 ```
@@ -42,7 +44,16 @@ Default external-folder mode:
 path index only
 ```
 
-This means the skill records where files are and what they appear to contain, but does not copy them into the vault.
+This means the skill records where files are, creates Obsidian-visible proxy
+nodes and links, but does not copy the original files into the vault.
+
+Minimum path-index graph:
+
+```text
+ingest/index.md
+  -> sources/<external-document-proxy>.md
+  -> topics/projects/entities/sops
+```
 
 ## 3. Maintain
 

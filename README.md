@@ -27,7 +27,7 @@ Most personal knowledge bases are messy in real life:
 
 Obsidian LLM Wiki is designed for that reality.
 
-It starts with inventory and confirmation, then turns selected material into wiki pages such as topics, sources, projects, entities, SOPs, and checklists.
+It starts with inventory and confirmation, then turns selected material into wiki-visible nodes such as ingest indexes, source proxy pages, topics, projects, entities, SOPs, and checklists.
 
 ## Core Architecture
 
@@ -67,11 +67,17 @@ Supported modes:
 
 | Mode | Behavior | Copies Files Into Vault |
 |---|---|---|
-| Path index | Record where files are, what they are, and how they should be handled | No |
+| Path index | Record where files are and create wiki-visible source proxy nodes with graph links | No |
 | Summary ingest | Read approved content and create source/topic/project pages | Optional |
 | Archive import | Copy approved files into `raw/`, then process them | Yes |
 
 External files are never copied into `raw/` by default.
+
+Path index is still an Obsidian graph operation:
+
+- `ingest/index.md` records ingest batches, source paths, wiki entries, status, and gaps.
+- `sources/<name>.md` acts as the source proxy node for an external document or coherent document group.
+- `index.md`, topic, project, entity, and SOP pages link to those proxy nodes so they appear in the Obsidian graph and can be reached by query workflows.
 
 ## Safety Model
 
@@ -148,7 +154,8 @@ Obsidian LLM Wiki is working when:
 - External folders are scanned and planned before files are copied or summarized.
 - Sensitive values are not reproduced in generated wiki pages.
 - `index.md` becomes the main navigation entry for the wiki.
-- Source pages explain where material came from and how it was handled.
+- `ingest/index.md` becomes the ingest control-plane index.
+- Source proxy pages explain where external material came from and how it was handled.
 - Topic, project, entity, and SOP pages become easier to query than raw scattered notes.
 - Health checks produce clear Errors, Warnings, and Info instead of vague advice.
 - Query answers cite wiki pages and state evidence gaps.

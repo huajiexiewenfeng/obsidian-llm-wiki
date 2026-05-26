@@ -36,10 +36,17 @@ Ingest this confirmed PDF as a source summary and update relevant topic or proje
 Archive these approved files into raw and then generate an ingestion report.
 ```
 
+```text
+Ingest D:\projects\mas对接 without moving original files. Obsidian must show an ingest index, source proxy nodes for approved documents, and graph links from index/topic/project/SOP pages so query can find the external documents later.
+```
+
 Expected:
 
 - defaults external folders to path-index mode
 - asks before copying into `raw/`
+- creates or updates top-level `ingest/index.md`
+- creates source proxy nodes under `sources/` for approved documents or explicit document groups
+- links source proxy nodes from index/topic/project/entity/SOP pages so they appear in the Obsidian graph
 - produces plan/report and updates wiki pages only after confirmation
 
 ## obsidian-wiki-maintain

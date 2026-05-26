@@ -27,6 +27,23 @@ scan -> classify -> plan -> confirm -> process approved items
 
 Do not copy external files into `raw/` unless the user explicitly confirms archival import.
 
+Path-index mode is still an Obsidian graph operation. Even when raw external
+files stay outside the vault, ingest must create or update wiki-visible pages
+that make the external material discoverable from `index.md` and related topic
+pages.
+
+Minimum graph-first output for approved external material:
+
+```text
+ingest/index.md
+  -> records ingest batches, document-level source paths, wiki entries, status
+sources/<source-name>-summary-or-index.md
+  -> acts as the Obsidian proxy node for an external document or document group
+  -> linked from index.md or ingest/index.md
+  -> linked from relevant topics/projects/entities/SOPs
+  -> includes source path, status, summary, key topics, useful-for, related pages
+```
+
 ## Workflow
 
 Follow `references/ingest-workflow.md`.
@@ -39,13 +56,15 @@ Core steps:
 4. Generate an ingestion plan.
 5. Ask for confirmation before reading deeply or copying files.
 6. Process approved items.
-7. Create or update wiki pages.
-8. Update `index.md` and `log.md`.
-9. Write an ingestion report.
+7. Create or update source summary/index pages.
+8. Update top-level `ingest/index.md`, `index.md`, related topic/project/entity/SOP pages, and `log.md`.
+9. Write an ingestion report that lists graph links updated.
 
 ## Supported Outputs
 
 - `sources/<name>-资料索引.md`
+- `sources/<name>-summary.md`
+- `ingest/index.md`
 - `sources/外部资料摄入计划-YYYY-MM-DD.md`
 - `sources/外部资料摄入报告-YYYY-MM-DD.md`
 - `topics/<topic>.md`
@@ -58,6 +77,28 @@ Core steps:
 Follow `references/safety-rules.md`.
 
 Never include raw secret values in generated pages. For sensitive sources, record only path, type, risk, and recommendation.
+
+## Graph-First Requirements
+
+- Do not leave external material known only to the filesystem.
+- Keep the ingest control-plane index outside the wiki knowledge folders:
+  use top-level `ingest/index.md`, not `sources/ingested-document-index.md`.
+- Every approved external source must have at least one wiki-visible source
+  index or summary page under `sources/`.
+- For approved individual documents, create a source proxy node when practical
+  instead of only listing the document inside a batch table. The proxy node is
+  what appears in the Obsidian graph.
+- Every ingest batch must be listed in top-level `ingest/index.md` with source
+  path, wiki entry, processing mode, status, and gaps.
+- `index.md` must link to the new or updated source page, grouped under a clear
+  section such as `Sources`, `Topics`, `Projects`, or `SOPs`.
+- Relevant `topics/`, `projects/`, `entities/`, or `sops/` pages should link
+  back to the source page when the relationship is durable.
+- Source pages should include the original external path, processing mode,
+  import status, sensitivity note, summary, key topics, useful-for section, and
+  related wiki links.
+- If a source is too sensitive to summarize, create a cautious path index only:
+  path, type, risk category, recommended handling, and no sensitive values.
 
 ## Confirmation Points
 
