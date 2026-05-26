@@ -26,7 +26,8 @@ Follow `references/query-workflow.md`.
 Default order:
 
 ```text
-index.md
+wiki/index.md
+  -> ingest/index.md when external-source discovery is relevant
   -> relevant topic/project/entity/SOP/source pages
   -> original source material only when necessary
 ```

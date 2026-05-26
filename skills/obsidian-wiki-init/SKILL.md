@@ -26,6 +26,7 @@ Before writing files, inspect:
 - current working directory
 - whether it appears to be an Obsidian vault
 - existing `00-知识库中控/`, `index.md`, `log.md`, or `AGENTS.md`
+- existing `00-知识库中控/ingest/index.md`
 - whether the user requested full scanning or structure-only scanning
 
 ## Workflow
@@ -38,6 +39,7 @@ Before writing files, inspect:
    - `00-知识库中控/wiki/index.md`
    - `00-知识库中控/wiki/log.md`
    - `00-知识库中控/wiki/AGENTS.md`
+   - `00-知识库中控/ingest/index.md`
    - `00.知识库地图.md`
    - `00.整理范围确认.md`
 6. Record assumptions and next steps.

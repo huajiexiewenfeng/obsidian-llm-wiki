@@ -15,6 +15,7 @@ Use this skill when the user wants to:
 - find broken links
 - find orphan pages
 - check `index.md` and `log.md` consistency
+- check `ingest/index.md` batch and source proxy consistency
 - detect missing topic/project/entity/SOP pages
 - scan for sensitive information spread
 - apply narrow structural repairs
@@ -25,8 +26,8 @@ Do not use this skill to answer knowledge questions. Use `obsidian-wiki-query`.
 
 Follow `references/health-check-rules.md`.
 
-1. Read the wiki root and `index.md`.
-2. Read `log.md`.
+1. Resolve the active Obsidian control center.
+2. Read `wiki/index.md`, `wiki/log.md`, and `ingest/index.md` when present.
 3. Inspect page groups.
 4. Check links, coverage, and consistency.
 5. Scan generated wiki pages for sensitive patterns.
@@ -39,6 +40,7 @@ Follow `references/health-check-rules.md`.
 - `健康检查-YYYY-MM-DD.md`
 - optional `index.md` updates
 - optional `log.md` updates
+- optional `ingest/index.md` consistency notes
 - optional narrow page-link repairs
 
 ## Finding Levels

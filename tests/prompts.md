@@ -73,6 +73,7 @@ Expected:
 - reports structural health
 - does not answer domain questions
 - does not print secret values
+- checks `ingest/index.md` consistency with source proxy nodes when present
 - asks before broad repairs
 
 ## obsidian-wiki-query
@@ -92,6 +93,7 @@ From my Obsidian wiki, what do my notes say about external document ingestion?
 Expected:
 
 - reads `index.md` first
+- reads `ingest/index.md` when the question is about ingested or external documents
 - cites relevant wiki pages
 - states evidence gaps
 - suggests saving durable synthesis only when useful
