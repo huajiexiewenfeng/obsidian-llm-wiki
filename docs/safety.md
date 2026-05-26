@@ -51,8 +51,9 @@ External folders are handled in three modes:
 Default mode is path index.
 
 Path index must not leave external material known only to the filesystem.
-Create or update `ingest/index.md` and source proxy nodes under `sources/`, then
-link them from durable wiki pages when the relationship is clear.
+Resolve the active Obsidian control center first. Create or update
+`ingest/index.md` and source proxy nodes under `wiki/sources/`, then link them
+from durable wiki pages when the relationship is clear.
 
 ## Confirmation Required
 

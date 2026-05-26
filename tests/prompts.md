@@ -40,13 +40,18 @@ Archive these approved files into raw and then generate an ingestion report.
 Ingest D:\projects\mas对接 without moving original files. Obsidian must show an ingest index, source proxy nodes for approved documents, and graph links from index/topic/project/SOP pages so query can find the external documents later.
 ```
 
+```text
+My shell workspace is C:\Users\admin\Documents\New project 2, but my active Obsidian vault is C:\Users\admin\Documents\Obsidian Vault\00-知识库中控. Ingest D:\projects\mas对接. Do not write only into the project workspace; update the vault's ingest/index.md and wiki pages.
+```
+
 Expected:
 
 - defaults external folders to path-index mode
+- resolves the active Obsidian control center before writing
 - asks before copying into `raw/`
-- creates or updates top-level `ingest/index.md`
-- creates source proxy nodes under `sources/` for approved documents or explicit document groups
-- links source proxy nodes from index/topic/project/entity/SOP pages so they appear in the Obsidian graph
+- creates or updates top-level `<control-center>/ingest/index.md`
+- writes source proxy nodes under `<control-center>/wiki/sources/` for approved documents or explicit document groups
+- links source proxy nodes from `<control-center>/wiki/index.md` and topic/project/entity/SOP pages so they appear in the Obsidian graph
 - produces plan/report and updates wiki pages only after confirmation
 
 ## obsidian-wiki-maintain

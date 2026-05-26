@@ -75,6 +75,8 @@ External files are never copied into `raw/` by default.
 
 Path index is still an Obsidian graph operation:
 
+- The active Obsidian control center must be resolved before writing. Do not
+  satisfy ingest by writing only into the current shell/project workspace.
 - `ingest/index.md` records ingest batches, source paths, wiki entries, status, and gaps.
 - `sources/<name>.md` acts as the source proxy node for an external document or coherent document group.
 - `index.md`, topic, project, entity, and SOP pages link to those proxy nodes so they appear in the Obsidian graph and can be reached by query workflows.

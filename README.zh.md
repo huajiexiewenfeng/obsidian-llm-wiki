@@ -75,6 +75,7 @@ query     = 基于 wiki 回答和沉淀
 
 路径索引仍然是 Obsidian 图谱操作：
 
+- 写入前必须先定位当前激活的 Obsidian 知识库中控，不能只写到当前 shell / 项目工作区。
 - `ingest/index.md` 记录摄入批次、原始路径、wiki 入口、处理状态和缺口。
 - `sources/<name>.md` 是外部文档或文档组在 Obsidian 里的 source 代理节点。
 - `index.md`、topic、project、entity、SOP 页面要链接到这些代理节点，使其能出现在关系图谱里，并能被 query workflow 找到。

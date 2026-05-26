@@ -25,6 +25,7 @@ Expected flow:
 
 ```text
 read requested source path(s)
+  -> resolve active Obsidian control center
   -> scan candidate files
   -> filter irrelevant files
   -> flag sensitive, duplicate, binary, and large files
@@ -45,7 +46,8 @@ path index only
 ```
 
 This means the skill records where files are, creates Obsidian-visible proxy
-nodes and links, but does not copy the original files into the vault.
+nodes and links in the active vault, but does not copy the original files into
+the vault.
 
 Minimum path-index graph:
 

@@ -27,6 +27,23 @@ scan -> classify -> plan -> confirm -> process approved items
 
 Do not copy external files into `raw/` unless the user explicitly confirms archival import.
 
+Always resolve the target Obsidian control center before writing anything. The
+current shell workspace is only the source or working directory unless it is
+the user's active Obsidian vault. Do not satisfy ingest by writing generated
+pages only into the project workspace.
+
+Target layout:
+
+```text
+<Obsidian Vault>/00-知识库中控/ingest/index.md
+<Obsidian Vault>/00-知识库中控/wiki/index.md
+<Obsidian Vault>/00-知识库中控/wiki/sources/*.md
+<Obsidian Vault>/00-知识库中控/wiki/topics/*.md
+<Obsidian Vault>/00-知识库中控/wiki/projects/*.md
+<Obsidian Vault>/00-知识库中控/wiki/entities/*.md
+<Obsidian Vault>/00-知识库中控/wiki/sops/*.md
+```
+
 Path-index mode is still an Obsidian graph operation. Even when raw external
 files stay outside the vault, ingest must create or update wiki-visible pages
 that make the external material discoverable from `index.md` and related topic
@@ -51,14 +68,15 @@ Follow `references/ingest-workflow.md`.
 Core steps:
 
 1. Identify source path(s).
-2. Scan candidate files.
-3. Classify files by type, topic, risk, and recommended handling.
-4. Generate an ingestion plan.
-5. Ask for confirmation before reading deeply or copying files.
-6. Process approved items.
-7. Create or update source summary/index pages.
-8. Update top-level `ingest/index.md`, `index.md`, related topic/project/entity/SOP pages, and `log.md`.
-9. Write an ingestion report that lists graph links updated.
+2. Resolve the active Obsidian vault/control center and confirm the target path if ambiguous.
+3. Scan candidate files.
+4. Classify files by type, topic, risk, and recommended handling.
+5. Generate an ingestion plan.
+6. Ask for confirmation before reading deeply or copying files.
+7. Process approved items.
+8. Write source summary/index/proxy pages into the Obsidian `wiki/` tree.
+9. Update the Obsidian top-level `ingest/index.md`, `wiki/index.md`, related wiki pages, and `wiki/log.md`.
+10. Write an ingestion report that lists graph links updated.
 
 ## Supported Outputs
 
@@ -80,6 +98,14 @@ Never include raw secret values in generated pages. For sensitive sources, recor
 
 ## Graph-First Requirements
 
+- Before writing, locate the real Obsidian control center. Prefer an existing
+  `00-知识库中控/` directory with `wiki/index.md`; if several candidates exist,
+  ask the user which vault is active.
+- Generated ingest content must be written into the Obsidian control center,
+  not only into the coding/project workspace.
+- `ingest/index.md` means `<control-center>/ingest/index.md`.
+- `index.md`, `log.md`, `sources/`, `topics/`, `projects/`, `entities/`, and
+  `sops/` mean paths under `<control-center>/wiki/`.
 - Do not leave external material known only to the filesystem.
 - Keep the ingest control-plane index outside the wiki knowledge folders:
   use top-level `ingest/index.md`, not `sources/ingested-document-index.md`.

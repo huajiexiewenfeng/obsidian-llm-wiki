@@ -44,8 +44,9 @@ Turns source material into wiki pages. Sources may come from:
 - an external path list
 
 External sources are indexed by path by default. Path indexing still creates
-Obsidian-visible source proxy nodes and graph links. Summary ingestion and
-archival copying into `raw/` require confirmation.
+Obsidian-visible source proxy nodes and graph links in the active Obsidian
+control center. Summary ingestion and archival copying into `raw/` require
+confirmation.
 
 ### obsidian-wiki-maintain
 
