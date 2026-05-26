@@ -22,11 +22,30 @@ Use this skill when the user wants to:
 
 Do not use this skill to answer knowledge questions. Use `obsidian-wiki-query`.
 
+## Wiki Root Resolution
+
+Before reading or updating any wiki page, resolve and state the actual wiki
+root. Do not assume the current shell working directory is the Obsidian wiki.
+
+Resolution priority:
+
+1. If the user provides a vault, control-center, or wiki path, use it.
+2. If `C:\Users\admin\Documents\Obsidian Vault\00-知识库中控\wiki`
+   exists, prefer it as the default wiki root.
+3. Otherwise, search for an Obsidian control center that has `wiki/index.md`
+   and `wiki/log.md`, or a wiki root that has `index.md` and `log.md`.
+4. If multiple candidates exist, ask the user which wiki is active.
+5. Before making edits, say which wiki root is being used.
+
+If a project workspace contains an `index.md` but is not the resolved Obsidian
+wiki root, do not maintain that workspace as the wiki unless the user
+explicitly says it is the target wiki.
+
 ## Workflow
 
 Follow `references/health-check-rules.md`.
 
-1. Resolve the active Obsidian control center.
+1. Resolve and state the active Obsidian wiki root.
 2. Read `wiki/index.md`, `wiki/log.md`, and `ingest/index.md` when present.
 3. Inspect page groups.
 4. Check links, coverage, and consistency.

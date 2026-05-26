@@ -19,6 +19,25 @@ Use this skill when the user wants to:
 
 Do not use this skill for health checks. Use `obsidian-wiki-maintain`.
 
+## Wiki Root Resolution
+
+Before reading any wiki page, resolve and state the actual wiki root. Do not
+assume the current shell working directory is the Obsidian wiki.
+
+Resolution priority:
+
+1. If the user provides a vault, control-center, or wiki path, use it.
+2. If `C:\Users\admin\Documents\Obsidian Vault\00-知识库中控\wiki`
+   exists, prefer it as the default wiki root.
+3. Otherwise, search for an Obsidian control center that has `wiki/index.md`
+   and `wiki/log.md`, or a wiki root that has `index.md` and `log.md`.
+4. If multiple candidates exist, ask the user which wiki is active.
+5. Before answering, say which wiki root is being used.
+
+If a project workspace contains an `index.md` but is not the resolved Obsidian
+wiki root, do not use it as the knowledge base unless the user explicitly says
+that workspace is the target wiki.
+
 ## Reading Order
 
 Follow `references/query-workflow.md`.

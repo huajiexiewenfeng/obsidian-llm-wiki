@@ -32,6 +32,21 @@ current shell workspace is only the source or working directory unless it is
 the user's active Obsidian vault. Do not satisfy ingest by writing generated
 pages only into the project workspace.
 
+Ingest has two different paths: source path(s) to scan and the target wiki root
+to update. A user-provided source directory is not automatically the wiki root.
+Resolve and state the target wiki root before reading or writing wiki pages.
+Do not assume the current shell working directory is the Obsidian wiki.
+
+Resolution priority:
+
+1. If the user provides a vault, control-center, or wiki path, use it.
+2. If `C:\Users\admin\Documents\Obsidian Vault\00-知识库中控\wiki`
+   exists, prefer it as the default wiki root.
+3. Otherwise, search for an Obsidian control center that has `wiki/index.md`
+   and `wiki/log.md`, or a wiki root that has `index.md` and `log.md`.
+4. If multiple candidates exist, ask the user which wiki is active.
+5. Before making edits, say which wiki root is being used.
+
 Target layout:
 
 ```text
