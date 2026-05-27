@@ -36,6 +36,10 @@ Initialize the current Obsidian vault as an LLM Wiki. Create the control center 
 Only scan the vault folder structure and file types. Do not read note bodies yet.
 ```
 
+```text
+My Obsidian vault already has many folders. After init, guide me step by step and recommend the first ingest batch.
+```
+
 ## Phase 2: obsidian-wiki-ingest
 
 Deliver:

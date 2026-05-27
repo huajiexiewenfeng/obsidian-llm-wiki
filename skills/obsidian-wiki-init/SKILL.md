@@ -1,11 +1,11 @@
 ---
 name: obsidian-wiki-init
-description: Use this whenever the user wants to initialize, adopt, map, or set rules for an Obsidian vault as an LLM Wiki. Trigger on requests like "initialize Obsidian LLM Wiki", "adopt this vault", "create a knowledge center", "generate a knowledge map", "scan my vault", or "set Obsidian wiki rules". This skill creates structure and inventory only; it must not move or delete existing user files.
+description: Use this whenever the user wants to initialize, adopt, map, onboard, or set rules for an Obsidian vault as an LLM Wiki. Trigger on requests like "initialize Obsidian LLM Wiki", "adopt this vault", "create a knowledge center", "generate a knowledge map", "scan my vault", "guide me step by step", or "set Obsidian wiki rules". This skill creates structure, inventories existing content, generates an onboarding roadmap, and guides the user toward the first ingest batch. It must not move or delete existing user files.
 ---
 
 # Obsidian Wiki Init
 
-Initialize or adopt an Obsidian vault as an LLM Wiki.
+Initialize or adopt an Obsidian vault as an LLM Wiki, then guide the user into the first knowledge-building steps.
 
 ## When To Use
 
@@ -16,6 +16,8 @@ Use this skill when the user wants to:
 - generate a vault inventory or knowledge map
 - establish wiki page and safety rules
 - prepare the vault before ingesting content
+- create a step-by-step roadmap for building the wiki from an existing vault
+- decide what to ingest first when the vault already contains many notes
 
 Do not use this skill for answering knowledge questions. Use `obsidian-wiki-query` for that.
 
@@ -34,19 +36,30 @@ Before writing files, inspect:
 2. Check for existing wiki control files.
 3. Create missing control structure conservatively.
 4. Inventory directories and file types.
-5. Generate or update:
+5. Classify the vault into practical next-step buckets:
+   - high-value / frequently used
+   - project material
+   - learning material
+   - temporary or messy material
+   - sensitive or cautious material
+   - external-material candidates
+6. Generate or update:
    - `00-知识库中控/wiki/index.md`
    - `00-知识库中控/wiki/log.md`
    - `00-知识库中控/wiki/AGENTS.md`
    - `00.知识库地图.md`
    - `00.整理范围确认.md`
-6. Record assumptions and next steps.
+   - `00.LLM Wiki 建设路线图.md`
+7. Recommend the first 1-3 ingest candidates.
+8. End by asking the user to choose the first batch to process with `obsidian-wiki-ingest`.
 
 ## Output Files
 
 Use the structure in `references/vault-structure.md`.
 
 Use the templates in `references/page-templates.md`.
+
+Use `references/onboarding-roadmap.md` when generating `00.LLM Wiki 建设路线图.md` and the final guidance message.
 
 ## Safety Rules
 
@@ -59,6 +72,7 @@ Key points:
 - Do not rewrite original notes.
 - Do not copy secrets into generated wiki pages.
 - If the user asks for structure-only scanning, do not read note bodies.
+- Existing vaults should be guided progressively. Do not suggest full-vault ingestion as the default next step.
 
 ## Confirmation Points
 
@@ -68,6 +82,8 @@ Ask for confirmation before:
 - reading note bodies when the user asked for metadata-only inventory
 - changing existing wiki rules
 - replacing an existing index, log, or AGENTS file
+- proceeding from inventory into the first ingest batch
+- reading note bodies when the next step can be decided from directory names and metadata
 
 ## Report Format
 
@@ -79,9 +95,22 @@ End with:
 - Created:
 - Updated:
 - Inventory:
+- Roadmap:
+- Recommended first batch:
 - Skipped:
 - Risks:
 - Next:
+```
+
+The `Next` field should be a concrete onboarding question, not a generic completion message. Example:
+
+```text
+I recommend starting with one of these first ingest batches:
+1. 高频使用目录
+2. 项目资料目录
+3. 学习资料目录
+
+Which one should we process first with obsidian-wiki-ingest?
 ```
 
 ## Examples
@@ -108,4 +137,16 @@ Expected behavior:
 
 ```text
 Produce a metadata-only inventory without reading note bodies.
+```
+
+Input:
+
+```text
+My Obsidian vault already has many folders. Guide me step by step to build the LLM Wiki after initialization.
+```
+
+Expected behavior:
+
+```text
+Generate a roadmap, classify the vault into first-batch candidates, and ask the user which batch to ingest first.
 ```

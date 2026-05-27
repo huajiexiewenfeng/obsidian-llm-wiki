@@ -35,7 +35,7 @@ The first version uses four skills:
 
 | Skill | Use When |
 |---|---|
-| `obsidian-wiki-init` | Initialize or adopt an Obsidian vault, create a wiki control center, inventory the vault, and establish rules |
+| `obsidian-wiki-init` | Initialize or adopt an Obsidian vault, create a wiki control center, inventory the vault, establish rules, and generate an onboarding roadmap |
 | `obsidian-wiki-ingest` | Organize existing vault folders or ingest external files and directories into wiki pages |
 | `obsidian-wiki-maintain` | Run health checks for broken links, orphan pages, index/log drift, missing pages, and sensitive information spread |
 | `obsidian-wiki-query` | Answer questions from the wiki, summarize knowledge, generate outlines, and suggest durable pages to save |
@@ -108,6 +108,10 @@ Use it naturally:
 
 ```text
 Initialize the current Obsidian vault as an LLM Wiki.
+```
+
+```text
+My Obsidian vault already has many folders. Guide me step by step and recommend the first ingest batch.
 ```
 
 ```text

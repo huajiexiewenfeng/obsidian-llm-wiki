@@ -16,10 +16,16 @@ Only scan this vault's folder structure and file types. Do not read note bodies 
 Adopt this existing Obsidian vault and create index.md, log.md, AGENTS.md, a knowledge map, and a scope confirmation document.
 ```
 
+```text
+My Obsidian vault already has many folders. After initialization, guide me step by step and recommend what to ingest first.
+```
+
 Expected:
 
 - creates or updates control-center structure
 - inventories vault safely
+- creates an LLM Wiki roadmap
+- recommends a first ingest batch
 - does not move, delete, or rewrite existing notes
 
 ## obsidian-wiki-ingest

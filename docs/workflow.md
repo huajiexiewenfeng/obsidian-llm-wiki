@@ -13,9 +13,21 @@ detect vault
   -> create index/log/AGENTS
   -> inventory vault structure
   -> generate knowledge map and scope confirmation
+  -> generate LLM Wiki roadmap
+  -> recommend the first ingest batch
 ```
 
 The init step should be conservative. It creates structure and maps the current state, but does not rewrite the vault.
+
+For existing vaults with many files, initialization must also act as onboarding. It should guide the user into a step-by-step build path instead of leaving them with empty folders.
+
+Expected onboarding outputs:
+
+- `00.知识库地图.md`
+- `00.整理范围确认.md`
+- `00.LLM Wiki 建设路线图.md`
+
+The final init response should recommend 1-3 first ingest candidates and ask the user which batch to process first.
 
 ## 2. Ingest
 
@@ -81,7 +93,8 @@ Query is for using the knowledge base. It can suggest new pages but should not s
 ## Recommended First Test Run
 
 1. Run init on a small sample vault.
-2. Ingest one existing Obsidian folder.
-3. Ingest one external folder in path-index mode.
-4. Run maintain.
-5. Ask a query that requires reading topic, source, and SOP pages.
+2. Review the generated roadmap and choose the first ingest batch.
+3. Ingest one existing Obsidian folder.
+4. Ingest one external folder in path-index mode.
+5. Run maintain.
+6. Ask a query that requires reading topic, source, and SOP pages.

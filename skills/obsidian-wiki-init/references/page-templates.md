@@ -77,3 +77,29 @@
 
 ## 不处理
 ```
+
+## LLM Wiki Roadmap
+
+```markdown
+# LLM Wiki 建设路线图
+
+## 当前状态判断
+
+## 总体策略
+
+## 第一阶段：盘点和范围确认
+
+## 第二阶段：选择第一批 ingest 范围
+
+## 第三阶段：执行 obsidian-wiki-ingest
+
+## 第四阶段：执行 obsidian-wiki-maintain
+
+## 第五阶段：执行 obsidian-wiki-query
+
+## 推荐第一批整理候选
+
+## 用户需要确认的问题
+
+## 下一步
+```

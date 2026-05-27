@@ -35,7 +35,7 @@ Obsidian LLM Wiki 就是为这种现实情况设计的。
 
 | Skill | 使用场景 |
 |---|---|
-| `obsidian-wiki-init` | 初始化或接管 Obsidian Vault，创建知识库中控、盘点 vault、建立规则 |
+| `obsidian-wiki-init` | 初始化或接管 Obsidian Vault，创建知识库中控、盘点 vault、建立规则，并生成建设路线图 |
 | `obsidian-wiki-ingest` | 整理已有 vault 目录，或将外部文件/目录摄入成 wiki 页面 |
 | `obsidian-wiki-maintain` | 做健康检查，检查断链、孤立页面、index/log 不一致、缺页和敏感信息扩散 |
 | `obsidian-wiki-query` | 基于 wiki 回答问题、总结资料、生成大纲，并建议保存长期有价值的页面 |
@@ -108,6 +108,10 @@ npx skills add .
 
 ```text
 初始化当前 Obsidian Vault，创建 LLM Wiki 中控结构。
+```
+
+```text
+我的 Obsidian vault 已经有很多目录，初始化后请一步一步引导我，并推荐第一批整理范围。
 ```
 
 ```text
