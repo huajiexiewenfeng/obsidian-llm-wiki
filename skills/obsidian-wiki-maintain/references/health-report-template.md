@@ -16,6 +16,8 @@
 
 ## Info
 
+## Ingest Index Consistency
+
 ## 敏感信息风险
 
 ## 缺失页面建议
@@ -36,6 +38,7 @@
 - Errors：
 - Warnings：
 - Info：
+- Ingest index：
 - 已修复：
 - 待确认：
 - 下一步建议：

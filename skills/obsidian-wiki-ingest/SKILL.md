@@ -27,6 +27,55 @@ scan -> classify -> plan -> confirm -> process approved items
 
 Do not copy external files into `raw/` unless the user explicitly confirms archival import.
 
+Always resolve the target Obsidian control center before writing anything. The
+current shell workspace is only the source or working directory unless it is
+the user's active Obsidian vault. Do not satisfy ingest by writing generated
+pages only into the project workspace.
+
+Ingest has two different paths: source path(s) to scan and the target wiki root
+to update. A user-provided source directory is not automatically the wiki root.
+Resolve and state the target wiki root before reading or writing wiki pages.
+Do not assume the current shell working directory is the Obsidian wiki.
+
+Resolution priority:
+
+1. If the user provides a vault, control-center, or wiki path, use it.
+2. If `C:\Users\admin\Documents\Obsidian Vault\00-知识库中控\wiki`
+   exists, prefer it as the default wiki root.
+3. Otherwise, search for an Obsidian control center that has `wiki/index.md`
+   and `wiki/log.md`, or a wiki root that has `index.md` and `log.md`.
+4. If multiple candidates exist, ask the user which wiki is active.
+5. Before making edits, say which wiki root is being used.
+
+Target layout:
+
+```text
+<Obsidian Vault>/00-知识库中控/ingest/index.md
+<Obsidian Vault>/00-知识库中控/wiki/index.md
+<Obsidian Vault>/00-知识库中控/wiki/sources/*.md
+<Obsidian Vault>/00-知识库中控/wiki/topics/*.md
+<Obsidian Vault>/00-知识库中控/wiki/projects/*.md
+<Obsidian Vault>/00-知识库中控/wiki/entities/*.md
+<Obsidian Vault>/00-知识库中控/wiki/sops/*.md
+```
+
+Path-index mode is still an Obsidian graph operation. Even when raw external
+files stay outside the vault, ingest must create or update wiki-visible pages
+that make the external material discoverable from `index.md` and related topic
+pages.
+
+Minimum graph-first output for approved external material:
+
+```text
+ingest/index.md
+  -> records ingest batches, document-level source paths, wiki entries, status
+sources/<source-name>-summary-or-index.md
+  -> acts as the Obsidian proxy node for an external document or document group
+  -> linked from index.md or ingest/index.md
+  -> linked from relevant topics/projects/entities/SOPs
+  -> includes source path, status, summary, key topics, useful-for, related pages
+```
+
 ## Workflow
 
 Follow `references/ingest-workflow.md`.
@@ -34,18 +83,21 @@ Follow `references/ingest-workflow.md`.
 Core steps:
 
 1. Identify source path(s).
-2. Scan candidate files.
-3. Classify files by type, topic, risk, and recommended handling.
-4. Generate an ingestion plan.
-5. Ask for confirmation before reading deeply or copying files.
-6. Process approved items.
-7. Create or update wiki pages.
-8. Update `index.md` and `log.md`.
-9. Write an ingestion report.
+2. Resolve the active Obsidian vault/control center and confirm the target path if ambiguous.
+3. Scan candidate files.
+4. Classify files by type, topic, risk, and recommended handling.
+5. Generate an ingestion plan.
+6. Ask for confirmation before reading deeply or copying files.
+7. Process approved items.
+8. Write source summary/index/proxy pages into the Obsidian `wiki/` tree.
+9. Update the Obsidian top-level `ingest/index.md`, `wiki/index.md`, related wiki pages, and `wiki/log.md`.
+10. Write an ingestion report that lists graph links updated.
 
 ## Supported Outputs
 
 - `sources/<name>-资料索引.md`
+- `sources/<name>-summary.md`
+- `ingest/index.md`
 - `sources/外部资料摄入计划-YYYY-MM-DD.md`
 - `sources/外部资料摄入报告-YYYY-MM-DD.md`
 - `topics/<topic>.md`
@@ -58,6 +110,36 @@ Core steps:
 Follow `references/safety-rules.md`.
 
 Never include raw secret values in generated pages. For sensitive sources, record only path, type, risk, and recommendation.
+
+## Graph-First Requirements
+
+- Before writing, locate the real Obsidian control center. Prefer an existing
+  `00-知识库中控/` directory with `wiki/index.md`; if several candidates exist,
+  ask the user which vault is active.
+- Generated ingest content must be written into the Obsidian control center,
+  not only into the coding/project workspace.
+- `ingest/index.md` means `<control-center>/ingest/index.md`.
+- `index.md`, `log.md`, `sources/`, `topics/`, `projects/`, `entities/`, and
+  `sops/` mean paths under `<control-center>/wiki/`.
+- Do not leave external material known only to the filesystem.
+- Keep the ingest control-plane index outside the wiki knowledge folders:
+  use top-level `ingest/index.md`, not `sources/ingested-document-index.md`.
+- Every approved external source must have at least one wiki-visible source
+  index or summary page under `sources/`.
+- For approved individual documents, create a source proxy node when practical
+  instead of only listing the document inside a batch table. The proxy node is
+  what appears in the Obsidian graph.
+- Every ingest batch must be listed in top-level `ingest/index.md` with source
+  path, wiki entry, processing mode, status, and gaps.
+- `index.md` must link to the new or updated source page, grouped under a clear
+  section such as `Sources`, `Topics`, `Projects`, or `SOPs`.
+- Relevant `topics/`, `projects/`, `entities/`, or `sops/` pages should link
+  back to the source page when the relationship is durable.
+- Source pages should include the original external path, processing mode,
+  import status, sensitivity note, summary, key topics, useful-for section, and
+  related wiki links.
+- If a source is too sensitive to summarize, create a cautious path index only:
+  path, type, risk category, recommended handling, and no sensitive values.
 
 ## Confirmation Points
 

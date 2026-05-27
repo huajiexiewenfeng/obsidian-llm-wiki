@@ -40,6 +40,14 @@ Only scan the vault folder structure and file types. Do not read note bodies yet
 My Obsidian vault already has many folders. After init, guide me step by step and recommend the first ingest batch.
 ```
 
+Acceptance:
+
+- Creates `00-知识库中控/ingest/index.md` as part of the control center.
+- Creates `00-知识库中控/wiki/index.md`, `log.md`, and `AGENTS.md`.
+- Creates `00.LLM Wiki 建设路线图.md`.
+- Recommends the first ingest batch instead of suggesting full-vault ingestion.
+- Does not move, delete, or rewrite original notes.
+
 ## Phase 2: obsidian-wiki-ingest
 
 Deliver:
@@ -64,6 +72,18 @@ Ingest this confirmed PDF as a source summary and update any relevant topic or p
 Archive these approved files into raw and then create an ingestion report.
 ```
 
+```text
+My shell workspace is not my Obsidian vault. Ingest this external folder into my active Obsidian control center without moving original files.
+```
+
+Acceptance:
+
+- Resolves the active Obsidian control center before writing.
+- Updates `<control-center>/ingest/index.md`.
+- Writes source proxy nodes under `<control-center>/wiki/sources/`.
+- Links source proxy nodes from `<control-center>/wiki/index.md` and related topic/project/entity/SOP pages.
+- Does not copy external originals into `raw/` unless explicitly confirmed.
+
 ## Phase 3: obsidian-wiki-maintain
 
 Deliver:
@@ -83,6 +103,10 @@ Run a health check on the current wiki and report Errors, Warnings, and Info.
 Find pages missing from index.md and propose narrow fixes.
 ```
 
+```text
+Check whether ingest/index.md entries have matching source proxy nodes and index links.
+```
+
 ## Phase 4: obsidian-wiki-query
 
 Deliver:
@@ -100,6 +124,10 @@ Based on the current wiki, summarize the video stream low-latency troubleshootin
 
 ```text
 Use my knowledge base to create a team AI productivity talk outline.
+```
+
+```text
+What external documents have been ingested about MAS, and where are their source proxy nodes?
 ```
 
 ## Phase 5: Manual Trial

@@ -28,6 +28,26 @@
 ## 下一步
 ```
 
+## ingest/index.md
+
+```markdown
+# Ingest Index
+
+用途：这里记录外部资料和 vault 资料的摄入批次、原始路径、wiki 入口、处理状态和后续缺口。
+
+## Ingest Batches
+
+| 日期 | 批次 | 处理模式 | Wiki 入口 | 状态 |
+| --- | --- | --- | --- | --- |
+
+## Document-Level Index
+
+| 原始资料 | Wiki 入口 | 类型 | 处理状态 | 注意事项 |
+| --- | --- | --- | --- | --- |
+
+## Gaps
+```
+
 ## log.md Entry
 
 ```markdown

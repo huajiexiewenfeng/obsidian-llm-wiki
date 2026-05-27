@@ -2,7 +2,9 @@
 
 ## Inputs
 
-- wiki root
+- active Obsidian control center
+- wiki root under `<control-center>/wiki/`
+- ingest index under `<control-center>/ingest/index.md` when present
 - optional scope: full wiki, topic, project, source, recent changes
 - optional permission: report only or apply confirmed fixes
 
@@ -11,12 +13,15 @@
 ### Link Checks
 
 - `index.md` links exist
+- `ingest/index.md` links to wiki entries resolve
 - internal wiki links resolve
 - source/topic/project/entity/SOP cross-links are present where expected
 
 ### Coverage Checks
 
 - generated pages are included in `index.md`
+- approved external sources listed in `ingest/index.md` have source proxy nodes
+- source proxy nodes have a source path, processing status, and related wiki links
 - important additions are recorded in `log.md`
 - sources have a clear topic or project relationship
 - repeated entities have entity pages
@@ -43,6 +48,7 @@ Do not print secret values in the report. Report only file path, line category, 
 - file names are stable and readable
 - log entries match material changes
 - ingestion plans have corresponding reports when processed
+- `ingest/index.md` batch entries match source proxy pages and ingestion reports
 
 ## Repair Policy
 

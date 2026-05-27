@@ -14,7 +14,7 @@ Obsidian LLM Wiki 是一套工作流和 skills，用来把已有的 Obsidian Vau
 初始化 -> 摄入 -> 维护 -> 查询
 ```
 
-这个项目的目标不是把所有文件都倒进 Obsidian，而是在真实笔记、项目资料和外部目录之上，建立一层稳定的知识结构。
+这个项目的目标不是把所有文件都倒进 Obsidian，而是在真实笔记、项目资料和外部目录之上，建立一层稳定、可见、可查询的知识结构。
 
 ## 为什么需要它？
 
@@ -67,11 +67,18 @@ query     = 基于 wiki 回答和沉淀
 
 | 模式 | 行为 | 是否复制文件进 vault |
 |---|---|---|
-| 路径索引 | 记录文件在哪里、是什么、建议如何处理 | 否 |
+| 路径索引 | 记录文件在哪里，并创建可进入图谱的 source 代理节点和链接关系 | 否 |
 | 摘要摄入 | 读取确认过的内容，生成 source/topic/project 页面 | 可选 |
 | 归档导入 | 将确认过的文件复制到 `raw/`，再处理 | 是 |
 
 外部文件默认不会复制进 `raw/`。
+
+路径索引仍然是 Obsidian 图谱操作：
+
+- 写入前必须先定位当前激活的 Obsidian 知识库中控，不能只写到当前 shell / 项目工作区。
+- `ingest/index.md` 记录摄入批次、原始路径、wiki 入口、处理状态和缺口。
+- `sources/<name>.md` 是外部文档或文档组在 Obsidian 里的 source 代理节点。
+- `index.md`、topic、project、entity、SOP 页面要链接到这些代理节点，使其能出现在关系图谱里，并能被 query workflow 找到。
 
 ## 安全模型
 
@@ -152,7 +159,8 @@ Obsidian LLM Wiki 正常工作时，应该表现为：
 - 外部目录会先扫描和规划，再决定是否复制或摘要。
 - 生成的 wiki 页面不会泄露敏感原值。
 - `index.md` 成为 wiki 的主导航入口。
-- source 页面能说明资料来自哪里、如何被处理。
+- `ingest/index.md` 成为摄入控制台索引。
+- source 代理页面能说明资料来自哪里、如何被处理。
 - topic、project、entity、SOP 页面比散落原始笔记更容易查询。
 - 健康检查能输出明确的 Errors、Warnings 和 Info。
 - query 回答会引用 wiki 页面，并说明证据不足的地方。

@@ -44,11 +44,16 @@ External folders are handled in three modes:
 
 | Mode | Behavior | Copies files into vault |
 |---|---|---|
-| Path index | Record path, type, topic, risk, and recommendation | No |
+| Path index | Record path, type, topic, risk, recommendation, and wiki graph entry | No |
 | Summary ingest | Read approved content and create wiki summaries | Optional |
 | Archive import | Copy approved files to `raw/` and then process | Yes |
 
 Default mode is path index.
+
+Path index must not leave external material known only to the filesystem.
+Resolve the active Obsidian control center first. Create or update
+`ingest/index.md` and source proxy nodes under `wiki/sources/`, then link them
+from durable wiki pages when the relationship is clear.
 
 ## Confirmation Required
 

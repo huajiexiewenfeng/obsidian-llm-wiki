@@ -22,6 +22,7 @@ Initializes or adopts a vault. It creates a control center, performs an inventor
 It may create:
 
 - `00-知识库中控/`
+- `00-知识库中控/ingest/`
 - `00-知识库中控/raw/`
 - `00-知识库中控/wiki/`
 - `00-知识库中控/wiki/index.md`
@@ -42,7 +43,10 @@ Turns source material into wiki pages. Sources may come from:
 - one or more external directories
 - an external path list
 
-External sources are indexed by path by default. Summary ingestion and archival copying into `raw/` require confirmation.
+External sources are indexed by path by default. Path indexing still creates
+Obsidian-visible source proxy nodes and graph links in the active Obsidian
+control center. Summary ingestion and archival copying into `raw/` require
+confirmation.
 
 ### obsidian-wiki-maintain
 
@@ -74,10 +78,11 @@ Durable answers can be saved as synthesis, project, SOP, or outline pages.
 The first version uses these page groups:
 
 - `topics/`: durable subject areas
-- `sources/`: source inventories, ingestion plans, source summaries, and ingestion reports
+- `sources/`: source inventories, source proxy nodes, source summaries, and ingestion reports
 - `projects/`: project-level knowledge
 - `entities/`: systems, people, libraries, APIs, products, or concepts with stable identity
 - `sops/`: repeatable procedures, checklists, prompts, and operational workflows
+- `ingest/`: top-level ingest control-plane index, batch history, source path mappings, and processing status
 
 ## Why Four Skills
 
