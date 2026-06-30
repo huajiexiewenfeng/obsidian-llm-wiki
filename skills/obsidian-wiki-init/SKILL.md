@@ -52,8 +52,11 @@ Before writing files, inspect:
    - `00.知识库地图.md`
    - `00.整理范围确认.md`
    - `00.LLM Wiki 建设路线图.md`
-7. Recommend the first 1-3 ingest candidates.
-8. End by asking the user to choose the first batch to process with `obsidian-wiki-ingest`.
+7. Do not vendor doctor scripts or deterministic enforcement files into the
+   vault in V0. Use the installed repository skill and `scripts/` tooling.
+8. Recommend running `obsidian-wiki-doctor` after initialization to validate
+   the structure and produce a read-only report.
+9. Recommend the first 1-3 ingest candidates and ask which batch to process with `obsidian-wiki-ingest`.
 
 ## Output Files
 
@@ -100,6 +103,7 @@ End with:
 - Roadmap:
 - Recommended first batch:
 - Skipped:
+- Doctor recommendation:
 - Risks:
 - Next:
 ```
@@ -112,7 +116,7 @@ I recommend starting with one of these first ingest batches:
 2. 项目资料目录
 3. 学习资料目录
 
-Which one should we process first with obsidian-wiki-ingest?
+Before ingest, I recommend running obsidian-wiki-doctor once to validate the new structure. Which batch should we process first with obsidian-wiki-ingest after that?
 ```
 
 ## Examples

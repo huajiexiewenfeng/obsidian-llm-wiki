@@ -69,24 +69,44 @@ ingest/index.md
   -> topics/projects/entities/sops
 ```
 
-## 3. Maintain
+## 3. Doctor
 
-Use `obsidian-wiki-maintain` to keep the wiki coherent.
+Use `obsidian-wiki-doctor` when diagnosing wiki structure, validating a root,
+scoring maturity, producing a report, or investigating whether query quality is
+limited by wiki coverage.
 
 Expected flow:
 
 ```text
-read index/log/wiki tree
-  -> check links and page coverage
-  -> classify findings as Errors, Warnings, or Info
-  -> produce a health report
-  -> ask before broad repairs
-  -> apply approved narrow fixes
+resolve control center or wiki root
+  -> run read-only doctor checks
+  -> classify findings as Errors, Warnings, Info, or not-applicable
+  -> compute directional score
+  -> report evidence and redacted paths
+  -> hand repair scope to maintain when the user approves fixes
 ```
 
-Maintain is for structure, not answering knowledge questions.
+Doctor is for measurement and diagnosis. It must not edit vault files.
 
-## 4. Query
+## 4. Maintain
+
+Use `obsidian-wiki-maintain` to apply confirmed repairs.
+
+Expected flow:
+
+```text
+read doctor findings or explicit repair request
+  -> resolve active wiki root
+  -> restate approved repair scope
+  -> ask before broad repairs or sensitive cleanup
+  -> apply approved narrow fixes
+  -> update log.md
+  -> report changed files and remaining risks
+```
+
+Maintain is for repair, not diagnosis or answering knowledge questions.
+
+## 5. Query
 
 Use `obsidian-wiki-query` when the user asks a question that should be answered from the wiki.
 
@@ -109,5 +129,6 @@ Query is for using the knowledge base. It can suggest new pages but should not s
 2. Review the generated roadmap and choose the first ingest batch.
 3. Ingest one existing Obsidian folder.
 4. Ingest one external folder in path-index mode.
-5. Run maintain.
-6. Ask a query that requires reading topic, source, and SOP pages.
+5. Run doctor and review the report.
+6. Apply one approved maintain repair if the report identifies a narrow fix.
+7. Ask a query that requires reading topic, source, and SOP pages.

@@ -44,7 +44,7 @@ explicitly says it is the target wiki.
 
 ## Workflow
 
-Follow `references/health-check-rules.md`.
+Follow `references/repair-policy.md`.
 
 1. Resolve and state the active Obsidian wiki root.
 2. Run `scripts/obsidian_wiki_doctor.py` through `obsidian-wiki-doctor`, or

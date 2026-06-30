@@ -38,6 +38,17 @@ When sensitive content is suspected, record only:
 
 Do not quote or summarize secret values.
 
+## Doctor Safety
+
+`obsidian-wiki-doctor` is read-only. It must diagnose, validate, score, and
+report without editing vault files.
+
+Doctor output should use redacted paths and values when a path or finding could
+expose sensitive local context. It must not print secrets, matched credential
+values, source lines containing secrets, or unredacted internal endpoints. An
+invalid root is a safe diagnostic result, not permission to search broadly or
+repair anything. Repairs route to `obsidian-wiki-maintain` after user approval.
+
 ## External Folder Policy
 
 External folders are handled in three modes:

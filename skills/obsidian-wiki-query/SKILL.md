@@ -17,7 +17,10 @@ Use this skill when the user wants to:
 - locate relevant pages in the wiki
 - save a durable synthesis after answering
 
-Do not use this skill for health checks. Use `obsidian-wiki-maintain`.
+Do not use this skill for diagnosis, validation, scoring, structure-quality
+questions, or questions about whether weak answers are caused by wiki coverage.
+Use `obsidian-wiki-doctor` for those cases. Use `obsidian-wiki-maintain` only
+after the user approves repairs from confirmed findings.
 
 ## Wiki Root Resolution
 

@@ -1,3 +1,8 @@
+# Legacy Report Template
+
+This template is retained only for historical compatibility. New diagnosis,
+validation, scoring, and report output belongs to `obsidian-wiki-doctor`.
+
 # Health Report Template
 
 ```markdown

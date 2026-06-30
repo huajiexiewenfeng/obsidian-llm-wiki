@@ -1,6 +1,6 @@
 # Obsidian LLM Wiki
 
-用于 Obsidian 的 AI 辅助 LLM Wiki skills：整理已有 vault、摄入外部资料、维护知识库健康，并基于个人知识库回答问题。
+用于 Obsidian 的 AI 辅助 LLM Wiki skills：整理已有 vault、摄入外部资料、诊断知识库结构、执行已确认修复，并基于个人知识库回答问题。
 
 [English](./README.md) | 简体中文
 
@@ -11,7 +11,7 @@ Obsidian LLM Wiki 是一套工作流和 skills，用来把已有的 Obsidian Vau
 它不是 Obsidian 插件，而是一组 Codex/agent skills 和流程文档。目标是让 AI 助手以可控方式处理你的 vault：
 
 ```text
-初始化 -> 摄入 -> 维护 -> 查询
+初始化 -> 摄入 -> Doctor 诊断 -> Maintain 修复 -> 查询
 ```
 
 这个项目的目标不是把所有文件都倒进 Obsidian，而是在真实笔记、项目资料和外部目录之上，建立一层稳定、可见、可查询的知识结构。
@@ -31,21 +31,23 @@ Obsidian LLM Wiki 就是为这种现实情况设计的。
 
 ## 核心架构
 
-第一版包含 4 个 skills：
+第一版包含 5 个 skills：
 
 | Skill | 使用场景 |
 |---|---|
 | `obsidian-wiki-init` | 初始化或接管 Obsidian Vault，创建知识库中控、盘点 vault、建立规则，并生成建设路线图 |
 | `obsidian-wiki-ingest` | 整理已有 vault 目录，或将外部文件/目录摄入成 wiki 页面 |
-| `obsidian-wiki-maintain` | 做健康检查，检查断链、孤立页面、index/log 不一致、缺页和敏感信息扩散 |
+| `obsidian-wiki-doctor` | 只读诊断、校验、评分并生成报告，判断 wiki 结构和成熟度 |
+| `obsidian-wiki-maintain` | 根据 doctor 报告执行已确认的窄范围修复，例如 index、链接、log 或 source proxy 更新 |
 | `obsidian-wiki-query` | 基于 wiki 回答问题、总结资料、生成大纲，并建议保存长期有价值的页面 |
 
-4 个 skill 按用户意图拆分：
+5 个 skill 按用户意图拆分：
 
 ```text
 init      = 准备 vault
 ingest    = 把资料变成 wiki 页面
-maintain  = 维护 wiki 健康
+doctor    = 诊断、校验、评分和报告
+maintain  = 执行已确认的结构修复
 query     = 基于 wiki 回答和沉淀
 ```
 
@@ -134,7 +136,7 @@ npx skills add .
 ```
 
 ```text
-给当前 wiki 做一次健康检查，按 Errors、Warnings、Info 输出。
+对当前 wiki 运行 Obsidian Wiki Doctor，输出 Errors、Warnings、Info 和评分。
 ```
 
 ```text
@@ -162,7 +164,8 @@ Obsidian LLM Wiki 正常工作时，应该表现为：
 - `ingest/index.md` 成为摄入控制台索引。
 - source 代理页面能说明资料来自哪里、如何被处理。
 - topic、project、entity、SOP 页面比散落原始笔记更容易查询。
-- 健康检查能输出明确的 Errors、Warnings 和 Info。
+- Doctor 报告能输出明确的 Errors、Warnings、Info 和评分。
+- Maintain 只执行来自确认 findings 的已批准修复。
 - query 回答会引用 wiki 页面，并说明证据不足的地方。
 
 ## 项目结构
@@ -172,6 +175,7 @@ skills/
   obsidian-wiki-init/
   obsidian-wiki-ingest/
   obsidian-wiki-maintain/
+  obsidian-wiki-doctor/
   obsidian-wiki-query/
 
 docs/
@@ -179,6 +183,9 @@ docs/
   workflow.md
   safety.md
   development-plan.md
+
+scripts/
+  obsidian_wiki_doctor.py
 
 tests/
   prompts.md
@@ -196,7 +203,7 @@ tests/
 
 项目目前处于早期文档型 MVP 阶段。
 
-当前重点是先把 skill 边界、工作流、输出格式和安全规则写清楚。等手工流程稳定后，再加入目录扫描、链接检查、敏感模式检查和报告生成等确定性脚本。
+当前重点是先把 skill 边界、工作流、输出格式和安全规则写清楚。Doctor 脚本是第一批确定性的校验与评分能力；更多确定性辅助脚本会在手工流程稳定后再加入。
 
 ## License
 

@@ -6,11 +6,15 @@
 
 ## Core Loop
 
+The operating model has workflow skills plus a read-only measurement layer.
+
 ```text
 obsidian-wiki-init
   -> obsidian-wiki-ingest
-  -> obsidian-wiki-maintain
   -> obsidian-wiki-query
+
+obsidian-wiki-doctor measures the wiki beside this loop.
+obsidian-wiki-maintain applies approved repairs from doctor findings.
 ```
 
 ## Skill Boundaries
@@ -48,16 +52,25 @@ Obsidian-visible source proxy nodes and graph links in the active Obsidian
 control center. Summary ingestion and archival copying into `raw/` require
 confirmation.
 
+### obsidian-wiki-doctor
+
+Diagnoses the wiki without editing files. It validates structure, reports
+deterministic findings, computes a directional maturity score, and explains
+whether query quality problems are likely caused by missing wiki structure.
+
+It is the measurement and diagnosis layer beside the loop. It can recommend
+repair handoff, but repairs belong to `obsidian-wiki-maintain`.
+
 ### obsidian-wiki-maintain
 
-Checks and repairs wiki structure. It focuses on:
+Repairs confirmed wiki structure issues. It consumes doctor findings or a
+user-approved repair request, then applies narrow changes such as:
 
-- broken links
-- orphan pages
-- index/log consistency
-- missing topic/project/entity/SOP pages
-- sensitive information spread
-- stale or ambiguous source pages
+- adding a missing page entry to `index.md`
+- fixing an unambiguous internal wiki link
+- updating `log.md` for a maintenance action
+- correcting explicit `ingest/index.md` to source-proxy drift
+- applying a narrow sensitive-cleanup request without printing secret values
 
 Large repairs require user confirmation.
 
@@ -84,13 +97,15 @@ The first version uses these page groups:
 - `sops/`: repeatable procedures, checklists, prompts, and operational workflows
 - `ingest/`: top-level ingest control-plane index, batch history, source path mappings, and processing status
 
-## Why Four Skills
+## Why Five Skills
 
-Four skills provide a complete loop without creating too many trigger boundaries:
+Five skills keep diagnosis separate from mutation:
 
 - `init`: prepare the vault
 - `ingest`: turn material into wiki pages
-- `maintain`: keep the wiki healthy
+- `doctor`: measure, validate, score, and report without editing
+- `maintain`: apply approved repairs after findings are confirmed
 - `query`: use the wiki for answers and synthesis
 
-Future versions may split inventory, rules, and organize into separate skills if they become large enough.
+Future versions may split inventory, rules, and organize into separate skills if
+they become large enough, but diagnosis and repair should remain separate.

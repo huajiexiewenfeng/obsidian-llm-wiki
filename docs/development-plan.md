@@ -9,12 +9,12 @@ Deliver:
 - `docs/workflow.md`
 - `docs/safety.md`
 - `docs/development-plan.md`
-- four skill folders under `skills/`
+- five skill folders under `skills/`
 
 Acceptance:
 
 - The repository clearly says this is not an Obsidian plugin.
-- A reader can understand the four-skill loop from the README.
+- A reader can understand the five-skill model from the README.
 - Safety rules are documented once and referenced by all skills.
 
 ## Phase 1: obsidian-wiki-init
@@ -84,20 +84,48 @@ Acceptance:
 - Links source proxy nodes from `<control-center>/wiki/index.md` and related topic/project/entity/SOP pages.
 - Does not copy external originals into `raw/` unless explicitly confirmed.
 
-## Phase 3: obsidian-wiki-maintain
+## Phase 3: obsidian-wiki-doctor
 
 Deliver:
 
-- `skills/obsidian-wiki-maintain/SKILL.md`
-- `references/health-check-rules.md`
-- `references/health-report-template.md`
-- `references/safety-rules.md`
+- `skills/obsidian-wiki-doctor/SKILL.md`
+- `skills/obsidian-wiki-doctor/references/doctor-checks.md`
+- `skills/obsidian-wiki-doctor/references/report-template.md`
+- `skills/obsidian-wiki-doctor/references/safety-rules.md`
+- `scripts/obsidian_wiki_doctor.py`
+- first deterministic unit-test surface for invalid roots, report output,
+  validation exit behavior, redaction, and score dimensions
 
 Acceptance prompts:
 
 ```text
-Run a health check on the current wiki and report Errors, Warnings, and Info.
+Run Obsidian Wiki Doctor on the current wiki and give me a Chinese report.
 ```
+
+```text
+Validate this wiki root and fail on Errors.
+```
+
+```text
+Is poor query quality here caused by missing wiki structure?
+```
+
+Acceptance:
+
+- Doctor is read-only and never edits vault files.
+- Invalid roots return a safe diagnostic instead of broad filesystem scanning.
+- Reports redact sensitive values.
+- Repair requests route to `obsidian-wiki-maintain`.
+
+## Phase 4: obsidian-wiki-maintain
+
+Deliver:
+
+- `skills/obsidian-wiki-maintain/SKILL.md`
+- `references/repair-policy.md`
+- `references/safety-rules.md`
+
+Acceptance prompts:
 
 ```text
 Find pages missing from index.md and propose narrow fixes.
@@ -107,7 +135,13 @@ Find pages missing from index.md and propose narrow fixes.
 Check whether ingest/index.md entries have matching source proxy nodes and index links.
 ```
 
-## Phase 4: obsidian-wiki-query
+Acceptance:
+
+- Maintain consumes doctor findings or explicit user-approved repair scope.
+- Maintain does not perform diagnosis, scoring, or reporting itself.
+- Broad repairs require confirmation.
+
+## Phase 5: obsidian-wiki-query
 
 Deliver:
 
@@ -130,22 +164,23 @@ Use my knowledge base to create a team AI productivity talk outline.
 What external documents have been ingested about MAS, and where are their source proxy nodes?
 ```
 
-## Phase 5: Manual Trial
+## Phase 6: Manual Trial
 
 Run the skills against a real or sample vault:
 
 ```text
-init -> ingest -> maintain -> query
+init -> ingest -> doctor -> maintain -> query
 ```
 
 Record:
 
 - what triggered correctly
 - what triggered ambiguously
+- whether doctor findings route to maintain only for approved repairs
 - where confirmation was missing
 - what output format needs refinement
 
-## Phase 6: Optional Scripts
+## Phase 7: Optional Scripts
 
 Add scripts only after the manual workflow is stable.
 

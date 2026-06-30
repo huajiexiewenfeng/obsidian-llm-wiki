@@ -1,6 +1,6 @@
 # Obsidian LLM Wiki
 
-AI-assisted Obsidian LLM Wiki skills for organizing existing vaults, ingesting external documents, maintaining wiki health, and querying a personal knowledge base.
+AI-assisted Obsidian LLM Wiki skills for organizing existing vaults, ingesting external documents, diagnosing wiki structure, applying approved repairs, and querying a personal knowledge base.
 
 English | [简体中文](./README.zh.md)
 
@@ -11,7 +11,7 @@ Obsidian LLM Wiki is a workflow and skill set for turning an existing Obsidian v
 It is not an Obsidian plugin. It is a set of Codex/agent skills and workflow documents that help an AI assistant work with your vault in a controlled way:
 
 ```text
-initialize -> ingest -> maintain -> query
+initialize -> ingest -> doctor -> maintain -> query
 ```
 
 The goal is not to dump every file into Obsidian. The goal is to build a careful knowledge layer on top of your real notes, project files, and external folders.
@@ -31,13 +31,14 @@ It starts with inventory and confirmation, then turns selected material into wik
 
 ## Core Architecture
 
-The first version uses four skills:
+The first version uses five skills:
 
 | Skill | Use When |
 |---|---|
 | `obsidian-wiki-init` | Initialize or adopt an Obsidian vault, create a wiki control center, inventory the vault, establish rules, and generate an onboarding roadmap |
 | `obsidian-wiki-ingest` | Organize existing vault folders or ingest external files and directories into wiki pages |
-| `obsidian-wiki-maintain` | Run health checks for broken links, orphan pages, index/log drift, missing pages, and sensitive information spread |
+| `obsidian-wiki-doctor` | Diagnose, validate, score, and report on wiki structure and maturity without editing files |
+| `obsidian-wiki-maintain` | Apply approved repairs from a doctor report, such as narrow index, link, log, or source-proxy updates |
 | `obsidian-wiki-query` | Answer questions from the wiki, summarize knowledge, generate outlines, and suggest durable pages to save |
 
 The skills are intentionally split by user intent:
@@ -45,7 +46,8 @@ The skills are intentionally split by user intent:
 ```text
 init      = prepare the vault
 ingest    = turn material into wiki pages
-maintain  = keep the wiki healthy
+doctor    = diagnose, validate, score, and report
+maintain  = apply approved structural repairs
 query     = use the wiki for answers and synthesis
 ```
 
@@ -135,7 +137,7 @@ Ingest this confirmed PDF as a source summary and update relevant topic or proje
 ```
 
 ```text
-Run a health check on the current wiki and report Errors, Warnings, and Info.
+Run Obsidian Wiki Doctor on the current wiki and report Errors, Warnings, Info, and score.
 ```
 
 ```text
@@ -163,7 +165,8 @@ Obsidian LLM Wiki is working when:
 - `ingest/index.md` becomes the ingest control-plane index.
 - Source proxy pages explain where external material came from and how it was handled.
 - Topic, project, entity, and SOP pages become easier to query than raw scattered notes.
-- Health checks produce clear Errors, Warnings, and Info instead of vague advice.
+- Doctor reports produce clear Errors, Warnings, Info, and score instead of vague advice.
+- Maintain applies only approved repairs from confirmed findings.
 - Query answers cite wiki pages and state evidence gaps.
 
 ## Project Structure
@@ -173,6 +176,7 @@ skills/
   obsidian-wiki-init/
   obsidian-wiki-ingest/
   obsidian-wiki-maintain/
+  obsidian-wiki-doctor/
   obsidian-wiki-query/
 
 docs/
@@ -180,6 +184,9 @@ docs/
   workflow.md
   safety.md
   development-plan.md
+
+scripts/
+  obsidian_wiki_doctor.py
 
 tests/
   prompts.md
@@ -197,7 +204,7 @@ tests/
 
 This project is in an early documentation-based MVP stage.
 
-The current focus is to make the skill boundaries, workflows, output formats, and safety rules clear. Scripts for deterministic tasks such as directory scanning, link checking, sensitive-pattern checks, and report generation may be added after the manual workflow is stable.
+The current focus is to make the skill boundaries, workflows, output formats, and safety rules clear. The doctor script is the first deterministic validation and scoring surface; additional deterministic helpers may be added after the manual workflow is stable.
 
 ## License
 
