@@ -104,5 +104,61 @@ class ValidationCheckTests(unittest.TestCase):
             self.assertNotIn("redacted-example-value", serialized)
 
 
+    def test_ingest_title_case_source_proxy_header_is_normalized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "ingest" / "index.md", "| Source | Source Proxy | Status | Wiki Entry |\n|---|---|---|---|\n| D:/docs/a.md | sources/a.md | Processed | topics/a.md |\n")
+            write(control / "wiki" / "topics" / "a.md", "# A\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            self.assertIn("missing-source-proxy", {item["check"] for item in findings})
+
+    def test_valid_markdown_title_link_is_not_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "index.md", "# Index\n\n- [Topic](topics/topic.md \"title\")\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            self.assertNotIn("broken-index-link", {item["check"] for item in findings})
+
+    def test_valid_extensionless_markdown_link_is_not_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "index.md", "# Index\n\n- [Topic](topics/topic)\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            self.assertNotIn("broken-index-link", {item["check"] for item in findings})
+
+    def test_valid_obsidian_wikilink_is_not_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "index.md", "# Index\n\n- [[topics/topic|Topic]]\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            self.assertNotIn("broken-index-link", {item["check"] for item in findings})
+
+    def test_sensitive_pattern_redacts_secret_like_filename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "sources" / "token=redacted-example-value.md", "# Secret\n\ntoken=another-example-value\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            sensitive = [item for item in findings if item["check"] == "sensitive-pattern"]
+            self.assertTrue(sensitive)
+            serialized = json.dumps(sensitive, ensure_ascii=False)
+            self.assertIn("token", serialized)
+            self.assertNotIn("redacted-example-value", serialized)
+            self.assertNotIn("another-example-value", serialized)
+
+    def test_score_remains_neutral_when_findings_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "sources" / "secret.md", "# Secret\n\ntoken=redacted-example-value\n")
+            result = run_doctor("report", "--root", str(control), "--format", "json")
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["findings"])
+            self.assertEqual(payload["score"]["score"], 100)
+
+
 if __name__ == "__main__":
     unittest.main()

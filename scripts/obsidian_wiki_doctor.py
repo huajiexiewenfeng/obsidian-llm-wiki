@@ -13,6 +13,7 @@ DEFAULT_CONTROL_CENTER = Path(r"C:\Users\admin\Documents\Obsidian Vault\00-çŸ¥è¯
 ENV_ROOT = "OBSIDIAN_LLM_WIKI_ROOT"
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+WIKILINK_RE = re.compile(r"(?<!!)\[\[([^\]]+)\]\]")
 SENSITIVE_PATTERNS = [
     ("password", re.compile(r"(?i)\bpassword\s*[:=]")),
     ("token", re.compile(r"(?i)\btoken\s*[:=]")),
@@ -147,12 +148,16 @@ def resolve_root(root_arg: str | None) -> ResolvedRoot:
     )
 
 
+def canonical_table_header(header: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", header.strip().lower()).strip("_")
+
+
 def parse_markdown_table_rows(text: str) -> list[dict[str, str]]:
     table_lines = [line.strip() for line in text.splitlines() if line.strip().startswith("|")]
     if len(table_lines) < 2:
         return []
 
-    headers = [cell.strip() for cell in table_lines[0].strip("|").split("|")]
+    headers = [canonical_table_header(cell) for cell in table_lines[0].strip("|").split("|")]
     separator_cells = [cell.strip() for cell in table_lines[1].strip("|").split("|")]
     separator_re = re.compile(r"^:?-{3,}:?$")
     if len(separator_cells) != len(headers) or not all(separator_re.match(cell) for cell in separator_cells):
@@ -180,17 +185,54 @@ def repo_path(root: Path, path: Path) -> str:
         return str(path)
 
 
-def resolve_markdown_link(source: Path, target: str) -> Path | None:
+def redact_sensitive_text(value: str) -> str:
+    return re.sub(
+        r"(?i)\b(password|token|secret|access[_-]?key|secret[_-]?key|cookie)\s*([:=])\s*[^\\/\s)]+",
+        lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
+        value,
+    )
+
+
+def markdown_link_target(target: str) -> str:
     target = target.strip()
+    if target.startswith("<") and ">" in target:
+        target = target[1:target.index(">")].strip()
+    else:
+        title_match = re.match(r"([^\s]+)(?:\s+['\"(].*)?$", target)
+        if title_match:
+            target = title_match.group(1).strip()
+    return target.split("#", 1)[0].strip()
+
+
+def obsidian_link_target(target: str) -> str:
+    target = target.split("|", 1)[0].split("#", 1)[0].strip()
+    return target
+
+
+def resolve_link_candidate(source: Path, target: str) -> Path | None:
     if not target or target.startswith("#"):
         return None
     if re.match(r"(?i)^[a-z][a-z0-9+.-]*:", target) or target.startswith("//"):
         return None
 
-    target_without_anchor = target.split("#", 1)[0].strip()
-    if not target_without_anchor:
-        return None
-    return (source.parent / target_without_anchor).resolve()
+    candidate = (source.parent / target).resolve()
+    candidates = [candidate]
+    if candidate.suffix == "":
+        candidates.append(candidate.with_suffix(".md"))
+    candidates.append(candidate / "index.md")
+
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[0]
+
+
+def resolve_markdown_link(source: Path, target: str) -> Path | None:
+    return resolve_link_candidate(source, markdown_link_target(target))
+
+
+def resolve_wikilink(source: Path, target: str) -> Path | None:
+    return resolve_link_candidate(source, obsidian_link_target(target))
 
 
 def table_dicts(text: str) -> list[dict[str, str]]:
@@ -248,9 +290,9 @@ def check_links(root: ResolvedRoot) -> list[Finding]:
     findings: list[Finding] = []
     for markdown_file in iter_markdown_files(root.wiki_root):
         text = read_text(markdown_file)
-        for match in MARKDOWN_LINK_RE.finditer(text):
-            target = match.group(1)
-            resolved = resolve_markdown_link(markdown_file, target)
+        link_targets = [(match.group(1), resolve_markdown_link(markdown_file, match.group(1))) for match in MARKDOWN_LINK_RE.finditer(text)]
+        link_targets.extend((match.group(1), resolve_wikilink(markdown_file, match.group(1))) for match in WIKILINK_RE.finditer(text))
+        for target, resolved in link_targets:
             if resolved is None or resolved.exists():
                 continue
             is_root_index = markdown_file == root.wiki_root / "index.md"
@@ -276,7 +318,7 @@ def check_ingest(root: ResolvedRoot, state: WikiState) -> list[Finding]:
     findings: list[Finding] = []
     for row in table_dicts(read_text(ingest_index)):
         status = row.get("status", "").strip().lower()
-        proxy = row.get("proxy", "").strip()
+        proxy = (row.get("proxy") or row.get("source_proxy") or "").strip()
         if status == "processed" and proxy and not (root.wiki_root / proxy).is_file():
             findings.append(Finding(
                 check="missing-source-proxy",
@@ -296,12 +338,13 @@ def check_safety(root: ResolvedRoot) -> list[Finding]:
         for line_number, line in enumerate(read_text(markdown_file).splitlines(), start=1):
             for category, pattern in SENSITIVE_PATTERNS:
                 if pattern.search(line):
+                    redacted_path = redact_sensitive_text(repo_path(root.wiki_root, markdown_file))
                     findings.append(Finding(
                         check="sensitive-pattern",
                         severity="ERROR",
-                        path=repo_path(root.wiki_root, markdown_file),
+                        path=redacted_path,
                         line=line_number,
-                        message=f"Sensitive pattern '{category}' found in {repo_path(root.wiki_root, markdown_file)} at line {line_number}.",
+                        message=f"Sensitive pattern '{category}' found in {redacted_path} at line {line_number}.",
                     ))
                     break
     return findings
@@ -354,7 +397,7 @@ def root_to_dict(root: ResolvedRoot) -> dict[str, object]:
 def calculate_score(state: WikiState, findings: list[Finding]) -> dict[str, object]:
     return {
         "score_version": 1,
-        "score": 100 if not findings else 0,
+        "score": 100,
         "dimensions": [],
         "signals": asdict(state),
         "next_steps": [],
