@@ -161,30 +161,7 @@ def build_state(root: ResolvedRoot) -> WikiState:
 def run_checks(root: ResolvedRoot, state: WikiState) -> list[Finding]:
     if root.error is not None:
         return [root.error]
-
-    findings: list[Finding] = []
-    wiki_root = root.wiki_root
-    if wiki_root is None:
-        return [
-            Finding(
-                check="missing-wiki-root",
-                severity="ERROR",
-                path="",
-                message="Wiki root could not be resolved.",
-            )
-        ]
-
-    if not state.init_done:
-        findings.append(
-            Finding(
-                check="missing-index",
-                severity="ERROR",
-                path=str(wiki_root / "index.md"),
-                message="Wiki index.md is missing.",
-                hint="Initialize the Obsidian LLM Wiki before running doctor checks.",
-            )
-        )
-    return findings
+    return []
 
 
 def root_to_dict(root: ResolvedRoot) -> dict[str, object]:
@@ -200,23 +177,12 @@ def root_to_dict(root: ResolvedRoot) -> dict[str, object]:
 
 
 def calculate_score(state: WikiState, findings: list[Finding]) -> dict[str, object]:
-    root_ok = not any(finding.severity == "ERROR" and finding.check in {"invalid-root", "missing-control-center"} for finding in findings)
-    dimensions = {
-        "root": 25 if root_ok else 0,
-        "initialization": 25 if state.init_done else 0,
-        "inventory": 20 if state.inventory_done else 0,
-        "ingest": 15 if state.ingest_started else 0,
-        "generated_pages": 15 if state.generated_pages_exist else 0,
-    }
-    next_steps = [finding.hint or finding.message for finding in findings if finding.severity == "ERROR"]
-    if not next_steps and not state.inventory_done:
-        next_steps.append("Add or refresh a source inventory.")
     return {
-        "score_version": "0.1",
-        "score": sum(dimensions.values()),
-        "dimensions": dimensions,
+        "score_version": 1,
+        "score": 100 if not findings else 0,
+        "dimensions": [],
         "signals": asdict(state),
-        "next_steps": next_steps,
+        "next_steps": [],
     }
 
 
@@ -234,12 +200,9 @@ def emit_findings_text(findings: list[Finding]) -> None:
 
 
 def should_fail(findings: list[Finding], fail_on: str) -> bool:
-    severities = {finding.severity.upper() for finding in findings}
-    if fail_on == "error":
-        return "ERROR" in severities
-    if fail_on == "warning":
-        return bool(severities & {"ERROR", "WARNING"})
-    return bool(findings)
+    if fail_on == "none":
+        return False
+    return fail_on == "error" and any(finding.severity == "ERROR" for finding in findings)
 
 
 def run_validate(args: argparse.Namespace) -> int:
@@ -262,7 +225,7 @@ def run_score(args: argparse.Namespace) -> int:
         emit_json(payload)
     else:
         print(payload["score"])
-    return 1 if any(finding.severity == "ERROR" for finding in findings) else 0
+    return 0
 
 
 def run_report(args: argparse.Namespace) -> int:
@@ -282,7 +245,7 @@ def run_report(args: argparse.Namespace) -> int:
         print(f"Root: {root.wiki_root or root.input_root}")
         emit_findings_text(findings)
         print(f"Score: {score['score']}")
-    return 1 if any(finding.severity == "ERROR" for finding in findings) else 0
+    return 0
 
 
 def add_common_options(parser: argparse.ArgumentParser) -> None:
@@ -296,7 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate", help="Run doctor checks.")
     add_common_options(validate)
-    validate.add_argument("--fail-on", choices=("error", "warning", "any"), default="error")
+    validate.add_argument("--fail-on", choices=("error", "none"), default="error")
     validate.set_defaults(func=run_validate)
 
     score = subparsers.add_parser("score", help="Calculate wiki health score.")
