@@ -250,14 +250,14 @@ class ValidationCheckTests(unittest.TestCase):
     def test_safety_check_redacts_secret_value(self):
         with tempfile.TemporaryDirectory() as tmp:
             control = make_control_center(Path(tmp))
-            write(control / "wiki" / "sources" / "secret.md", "# Secret\n\ntoken=redacted-example-value\n")
+            write(control / "wiki" / "sources" / "secret.md", "# Secret\n\ntoken=<secret-fixture>\n")
             result = run_doctor("validate", "--root", str(control), "--format", "json")
             findings = json.loads(result.stdout)
             sensitive = [item for item in findings if item["check"] == "sensitive-pattern"]
             self.assertTrue(sensitive)
             serialized = json.dumps(sensitive, ensure_ascii=False)
             self.assertIn("token", serialized)
-            self.assertNotIn("redacted-example-value", serialized)
+            self.assertNotIn("secret-fixture", serialized)
 ```
 
 - [ ] **Step 2: Run validation tests and verify failure**
@@ -738,7 +738,7 @@ obsidian-wiki-query
 ```powershell
 rg -n "four skills|Why Four Skills" README.md README.zh.md docs --glob "!docs/superpowers/**"
 rg -n "Project Graph|Flow Record|release gate" skills/obsidian-wiki-doctor docs --glob "!docs/superpowers/**"
-rg -n "redacted-example-value" . --glob "!tests/test_obsidian_wiki_doctor.py"
+rg -n "secret-fixture" . --glob "!tests/test_obsidian_wiki_doctor.py" --glob "!docs/superpowers/**"
 ```
 
 Expected: no stale four-skill framing, no project-lifecycle leakage in production docs, and no test secret example outside the test file.
