@@ -1,4 +1,4 @@
-The doctor reports risk category, file path, line number, and repair hint. It never prints secret values in text or JSON output.
+The doctor reports risk category and file path, plus line number and repair hint when available. It never prints secret values in text or JSON output.
 
 # Safety Rules
 
