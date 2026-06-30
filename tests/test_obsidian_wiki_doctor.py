@@ -173,15 +173,47 @@ class ValidationCheckTests(unittest.TestCase):
             self.assertNotIn("redacted-example-value", serialized)
             self.assertNotIn("another-secret", serialized)
 
-    def test_score_remains_neutral_when_findings_exist(self):
+    def test_sensitive_pattern_reduces_safety_score(self):
         with tempfile.TemporaryDirectory() as tmp:
             control = make_control_center(Path(tmp))
             write(control / "wiki" / "sources" / "secret.md", "# Secret\n\ntoken=redacted-example-value\n")
             result = run_doctor("report", "--root", str(control), "--format", "json")
             payload = json.loads(result.stdout)
+            safety = [item for item in payload["score"]["dimensions"] if item["name"] == "Safety hygiene"][0]
             self.assertTrue(payload["findings"])
-            self.assertEqual(payload["score"]["score"], 100)
+            self.assertEqual(safety["score"], 0)
+            self.assertLess(payload["score"]["score"], 100)
 
+
+class ScoreAndReportTests(unittest.TestCase):
+    def test_score_marks_ingest_not_applicable_for_fresh_init(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            result = run_doctor("score", "--root", str(control), "--format", "json")
+            payload = json.loads(result.stdout)
+            ingest = [item for item in payload["dimensions"] if item["name"] == "Ingest traceability"][0]
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(ingest["applicability"], "not-applicable")
+
+    def test_report_text_is_chinese_first_and_always_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp) / "00-知识库中控"
+            write(control / "wiki" / "log.md", "# Log\n")
+            result = run_doctor("report", "--root", str(control), "--format", "text")
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("# Obsidian Wiki Doctor 报告", result.stdout)
+            self.assertIn("## 建议行动计划", result.stdout)
+            self.assertIn("missing-wiki-index", result.stdout)
+
+    def test_report_json_contains_root_state_findings_and_score(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            result = run_doctor("report", "--root", str(control), "--format", "json")
+            payload = json.loads(result.stdout)
+            self.assertIn("root", payload)
+            self.assertIn("state", payload)
+            self.assertIn("findings", payload)
+            self.assertIn("score", payload)
 
 if __name__ == "__main__":
     unittest.main()

@@ -56,6 +56,25 @@ class WikiState:
     generated_pages_exist: bool
 
 
+@dataclass(frozen=True)
+class ScoreDimension:
+    name: str
+    weight: int
+    score: int | None
+    applicability: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ScoreReport:
+    score_version: int
+    score: int
+    level: str
+    dimensions: list[ScoreDimension]
+    signals: dict[str, object]
+    next_steps: list[str]
+
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8-sig")
 
@@ -403,15 +422,175 @@ def root_to_dict(root: ResolvedRoot) -> dict[str, object]:
     return payload
 
 
-def calculate_score(state: WikiState, findings: list[Finding]) -> dict[str, object]:
+def score_level(score: int) -> str:
+    if score >= 90:
+        return "healthy"
+    if score >= 70:
+        return "usable"
+    if score >= 50:
+        return "needs-attention"
+    return "at-risk"
+
+
+def has_error(findings: list[Finding], *checks: str) -> bool:
+    wanted = set(checks)
+    return any(finding.severity == "ERROR" and finding.check in wanted for finding in findings)
+
+
+def has_warning(findings: list[Finding], *checks: str) -> bool:
+    wanted = set(checks)
+    return any(finding.severity == "WARN" and finding.check in wanted for finding in findings)
+
+
+def build_score_report(root: ResolvedRoot, state: WikiState, findings: list[Finding]) -> ScoreReport:
+    dimensions: list[ScoreDimension] = []
+
+    root_score = 0 if root.error is not None else 20
+    dimensions.append(ScoreDimension(
+        name="Control center resolution",
+        weight=20,
+        score=root_score,
+        applicability="applicable",
+        message="Root could not be resolved." if root.error is not None else "Root resolves to a wiki control center.",
+    ))
+
+    navigation_error = has_error(findings, "missing-wiki-index", "missing-wiki-log", "broken-index-link") or root.error is not None
+    navigation_warning = has_warning(findings, "missing-roadmap", "missing-knowledge-map", "broken-internal-link")
+    if navigation_error:
+        navigation_score = 0
+        navigation_message = "Index, log, or root navigation has blocking errors."
+    elif navigation_warning:
+        navigation_score = 15
+        navigation_message = "Navigation works but discoverability warnings remain."
+    else:
+        navigation_score = 25
+        navigation_message = "Index, log, and internal navigation are discoverable."
+    dimensions.append(ScoreDimension(
+        name="Navigation and discoverability",
+        weight=25,
+        score=navigation_score,
+        applicability="applicable",
+        message=navigation_message,
+    ))
+
+    if state.ingest_started:
+        ingest_error = has_error(findings, "missing-source-proxy")
+        dimensions.append(ScoreDimension(
+            name="Ingest traceability",
+            weight=20,
+            score=0 if ingest_error else 20,
+            applicability="applicable",
+            message="Processed ingest rows have missing source proxies." if ingest_error else "Ingest rows are traceable to source proxies.",
+        ))
+    else:
+        dimensions.append(ScoreDimension(
+            name="Ingest traceability",
+            weight=20,
+            score=None,
+            applicability="not-applicable",
+            message="No ingest rows are present yet.",
+        ))
+
+    safety_error = has_error(findings, "sensitive-pattern")
+    dimensions.append(ScoreDimension(
+        name="Safety hygiene",
+        weight=20,
+        score=0 if safety_error else 20,
+        applicability="applicable",
+        message="Sensitive patterns require cleanup." if safety_error else "No sensitive patterns were detected.",
+    ))
+
+    query_ready = state.generated_pages_exist and root.error is None
+    dimensions.append(ScoreDimension(
+        name="Query readiness",
+        weight=15,
+        score=15 if query_ready else 0,
+        applicability="applicable",
+        message="Generated wiki pages are available for queries." if query_ready else "Generated wiki pages are not ready for queries.",
+    ))
+
+    applicable = [dimension for dimension in dimensions if dimension.applicability == "applicable"]
+    earned = sum(dimension.score or 0 for dimension in applicable)
+    possible = sum(dimension.weight for dimension in applicable)
+    score = round((earned / possible) * 100) if possible else 0
+
+    next_steps = [
+        f"修复 {finding.severity} finding: {finding.check} ({finding.path})"
+        for finding in findings
+        if finding.severity == "ERROR"
+    ]
+    if not next_steps:
+        next_steps = ["保持 wiki/index.md、wiki/log.md 和来源追踪持续更新。"]
+
+    return ScoreReport(
+        score_version=1,
+        score=score,
+        level=score_level(score),
+        dimensions=dimensions,
+        signals=asdict(state),
+        next_steps=next_steps,
+    )
+
+
+def score_to_dict(report: ScoreReport, root: ResolvedRoot) -> dict[str, object]:
     return {
-        "score_version": 1,
-        "score": 100,
-        "dimensions": [],
-        "signals": asdict(state),
-        "next_steps": [],
+        "root": root_to_dict(root),
+        "score_version": report.score_version,
+        "score": report.score,
+        "level": report.level,
+        "dimensions": [asdict(dimension) for dimension in report.dimensions],
+        "signals": report.signals,
+        "next_steps": report.next_steps,
     }
 
+
+def calculate_score(state: WikiState, findings: list[Finding]) -> dict[str, object]:
+    compatibility_root = ResolvedRoot(None, None, None, "unknown")
+    report = build_score_report(compatibility_root, state, findings)
+    payload = score_to_dict(report, compatibility_root)
+    payload.pop("root")
+    return payload
+
+
+def format_report_text(root: ResolvedRoot, state: WikiState, findings: list[Finding]) -> str:
+    report = build_score_report(root, state, findings)
+    root_path = root.wiki_root or root.input_root or root.control_center
+    finding_lines = [
+        f"- {finding.severity} {finding.check}: {finding.path}: {finding.message}"
+        for finding in findings
+    ] or ["- OK: 未发现阻断性 findings。"]
+    dimension_lines = [
+        f"- {dimension.name}: {dimension.score if dimension.score is not None else 'N/A'}/{dimension.weight} ({dimension.applicability}) - {dimension.message}"
+        for dimension in report.dimensions
+    ]
+    next_step_lines = [f"- {step}" for step in report.next_steps]
+    state_lines = [f"- {key}: {value}" for key, value in asdict(state).items()]
+
+    sections = [
+        "# Obsidian Wiki Doctor 报告",
+        "## 关键结论",
+        f"- 当前成熟度评分：{report.score}/100（{report.level}）。",
+        f"- 根目录来源：{root.source}。",
+        "## 建议行动计划",
+        *next_step_lines,
+        "## 总体评分",
+        f"- score_version: {report.score_version}",
+        f"- score: {report.score}",
+        f"- level: {report.level}",
+        "## 成熟度维度",
+        *dimension_lines,
+        "## Doctor Findings",
+        *finding_lines,
+        "## 证据与路径",
+        f"- control_center: {root.control_center}",
+        f"- wiki_root: {root.wiki_root}",
+        f"- input_root: {root.input_root}",
+        f"- report_root: {root_path}",
+        *state_lines,
+        "## Repair Handoff",
+        "- validate 命令仍按 --fail-on 返回失败码；score/report 用于诊断展示并始终返回 0。",
+    ]
+    return "\n".join(sections) + "\n"
 
 def emit_json(payload: object) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -447,33 +626,30 @@ def run_score(args: argparse.Namespace) -> int:
     root = resolve_root(args.root)
     state = build_state(root)
     findings = run_checks(root, state)
-    payload = {"root": root_to_dict(root), **calculate_score(state, findings)}
+    report = build_score_report(root, state, findings)
+    payload = score_to_dict(report, root)
     if args.format == "json":
         emit_json(payload)
     else:
         print(payload["score"])
     return 0
 
-
 def run_report(args: argparse.Namespace) -> int:
     root = resolve_root(args.root)
     state = build_state(root)
     findings = run_checks(root, state)
-    score = calculate_score(state, findings)
+    report = build_score_report(root, state, findings)
     payload = {
         "root": root_to_dict(root),
         "state": asdict(state),
         "findings": [asdict(finding) for finding in findings],
-        "score": score,
+        "score": score_to_dict(report, root),
     }
     if args.format == "json":
         emit_json(payload)
     else:
-        print(f"Root: {root.wiki_root or root.input_root}")
-        emit_findings_text(findings)
-        print(f"Score: {score['score']}")
+        print(format_report_text(root, state, findings), end="")
     return 0
-
 
 def add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root", help="Control-center or wiki root path.")
