@@ -294,20 +294,22 @@ def check_required_structure(root: ResolvedRoot, state: WikiState) -> list[Findi
     findings: list[Finding] = []
     index = root.wiki_root / "index.md"
     log = root.wiki_root / "log.md"
-    if log.is_file() and not index.is_file():
+    index_exists = index.is_file()
+    log_exists = log.is_file()
+    if not index_exists:
         findings.append(Finding(
             check="missing-wiki-index",
             severity="ERROR",
             path=repo_path(root.wiki_root, index),
-            message="wiki/log.md exists but wiki/index.md is missing.",
+            message="wiki/index.md is missing.",
             hint="Create wiki/index.md or rerun wiki initialization.",
         ))
-    if index.is_file() and not log.is_file():
+    if not log_exists:
         findings.append(Finding(
             check="missing-wiki-log",
             severity="ERROR",
             path=repo_path(root.wiki_root, log),
-            message="wiki/index.md exists but wiki/log.md is missing.",
+            message="wiki/log.md is missing.",
             hint="Create wiki/log.md or rerun wiki initialization.",
         ))
 

@@ -137,7 +137,7 @@ Ingest this confirmed PDF as a source summary and update relevant topic or proje
 ```
 
 ```text
-Run Obsidian Wiki Doctor on the current wiki and report Errors, Warnings, Info, and score.
+Run Obsidian Wiki Doctor on the current wiki and report Errors, Warnings, not-applicable dimensions, and score.
 ```
 
 ```text
@@ -165,7 +165,7 @@ Obsidian LLM Wiki is working when:
 - `ingest/index.md` becomes the ingest control-plane index.
 - Source proxy pages explain where external material came from and how it was handled.
 - Topic, project, entity, and SOP pages become easier to query than raw scattered notes.
-- Doctor reports produce clear Errors, Warnings, Info, and score instead of vague advice.
+- Doctor reports produce clear Errors, Warnings, not-applicable dimensions, and score instead of vague advice.
 - Maintain applies only approved repairs from confirmed findings.
 - Query answers cite wiki pages and state evidence gaps.
 

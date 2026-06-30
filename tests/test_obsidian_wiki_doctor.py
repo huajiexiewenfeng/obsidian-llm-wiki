@@ -61,6 +61,18 @@ class RootResolutionTests(unittest.TestCase):
 
 
 class ValidationCheckTests(unittest.TestCase):
+    def test_empty_control_center_wiki_reports_missing_index_and_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp) / "00-\u77e5\u8bc6\u5e93\u4e2d\u63a7"
+            (control / "wiki").mkdir(parents=True)
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            checks = {item["check"] for item in findings}
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("missing-wiki-index", checks)
+            self.assertIn("missing-wiki-log", checks)
+
+
     def test_missing_wiki_index_is_error_when_log_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
             control = Path(tmp) / "00-\u77e5\u8bc6\u5e93\u4e2d\u63a7"

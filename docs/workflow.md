@@ -80,7 +80,7 @@ Expected flow:
 ```text
 resolve control center or wiki root
   -> run read-only doctor checks
-  -> classify findings as Errors, Warnings, Info, or not-applicable
+  -> classify findings as Errors or Warnings, with not-applicable score dimensions when signals are absent
   -> compute directional score
   -> report evidence and redacted paths
   -> hand repair scope to maintain when the user approves fixes

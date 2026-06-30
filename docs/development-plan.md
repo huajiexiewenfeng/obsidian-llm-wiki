@@ -128,11 +128,11 @@ Deliver:
 Acceptance prompts:
 
 ```text
-Find pages missing from index.md and propose narrow fixes.
+Apply the doctor finding that specific wiki pages are missing from index.md.
 ```
 
 ```text
-Check whether ingest/index.md entries have matching source proxy nodes and index links.
+Apply approved doctor findings for ingest/index.md source proxy consistency.
 ```
 
 Acceptance:

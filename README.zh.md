@@ -136,7 +136,7 @@ npx skills add .
 ```
 
 ```text
-对当前 wiki 运行 Obsidian Wiki Doctor，输出 Errors、Warnings、Info 和评分。
+对当前 wiki 运行 Obsidian Wiki Doctor，输出 Errors、Warnings、not-applicable 维度和评分。
 ```
 
 ```text
@@ -164,7 +164,7 @@ Obsidian LLM Wiki 正常工作时，应该表现为：
 - `ingest/index.md` 成为摄入控制台索引。
 - source 代理页面能说明资料来自哪里、如何被处理。
 - topic、project、entity、SOP 页面比散落原始笔记更容易查询。
-- Doctor 报告能输出明确的 Errors、Warnings、Info 和评分。
+- Doctor 报告能输出明确的 Errors、Warnings、not-applicable 维度和评分。
 - Maintain 只执行来自确认 findings 的已批准修复。
 - query 回答会引用 wiki 页面，并说明证据不足的地方。
 
