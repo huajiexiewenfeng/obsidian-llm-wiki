@@ -187,8 +187,8 @@ def repo_path(root: Path, path: Path) -> str:
 
 def redact_sensitive_text(value: str) -> str:
     return re.sub(
-        r"(?i)\b(password|token|secret|access[_-]?key|secret[_-]?key|cookie)\s*([:=])\s*[^\\/\s)]+",
-        lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
+        r"(?i)\b(password|token|secret|access[_-]?key|secret[_-]?key|cookie)\s*([:=_-])\s*[^\\/\s)]+",
+        lambda match: f"{match.group(1)}{match.group(2)}<redacted>",
         value,
     )
 
@@ -231,8 +231,17 @@ def resolve_markdown_link(source: Path, target: str) -> Path | None:
     return resolve_link_candidate(source, markdown_link_target(target))
 
 
-def resolve_wikilink(source: Path, target: str) -> Path | None:
-    return resolve_link_candidate(source, obsidian_link_target(target))
+def resolve_wikilink(source: Path, target: str, wiki_root: Path | None = None) -> Path | None:
+    link_target = obsidian_link_target(target)
+    resolved = resolve_link_candidate(source, link_target)
+    if resolved is None or resolved.exists() or "/" in link_target or "\\" in link_target or wiki_root is None:
+        return resolved
+
+    basename = Path(link_target).with_suffix(".md").name if Path(link_target).suffix == "" else Path(link_target).name
+    matches = sorted(path.resolve() for path in iter_markdown_files(wiki_root) if path.name.lower() == basename.lower())
+    if len(matches) == 1:
+        return matches[0]
+    return resolved
 
 
 def table_dicts(text: str) -> list[dict[str, str]]:
@@ -291,7 +300,7 @@ def check_links(root: ResolvedRoot) -> list[Finding]:
     for markdown_file in iter_markdown_files(root.wiki_root):
         text = read_text(markdown_file)
         link_targets = [(match.group(1), resolve_markdown_link(markdown_file, match.group(1))) for match in MARKDOWN_LINK_RE.finditer(text)]
-        link_targets.extend((match.group(1), resolve_wikilink(markdown_file, match.group(1))) for match in WIKILINK_RE.finditer(text))
+        link_targets.extend((match.group(1), resolve_wikilink(markdown_file, match.group(1), root.wiki_root)) for match in WIKILINK_RE.finditer(text))
         for target, resolved in link_targets:
             if resolved is None or resolved.exists():
                 continue

@@ -150,6 +150,29 @@ class ValidationCheckTests(unittest.TestCase):
             self.assertNotIn("redacted-example-value", serialized)
             self.assertNotIn("another-example-value", serialized)
 
+
+    def test_valid_obsidian_basename_wikilink_is_not_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "index.md", "# Index\n\n- [[Topic]]\n")
+            write(control / "wiki" / "topics" / "Topic.md", "# Topic\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            self.assertNotIn("broken-index-link", {item["check"] for item in findings})
+
+    def test_sensitive_pattern_redacts_dash_secret_like_filename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "sources" / "token-redacted-example-value.md", "# Secret\n\ntoken=another-secret\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            sensitive = [item for item in findings if item["check"] == "sensitive-pattern"]
+            self.assertTrue(sensitive)
+            serialized = json.dumps(sensitive, ensure_ascii=False)
+            self.assertIn("token", serialized)
+            self.assertNotIn("redacted-example-value", serialized)
+            self.assertNotIn("another-secret", serialized)
+
     def test_score_remains_neutral_when_findings_exist(self):
         with tempfile.TemporaryDirectory() as tmp:
             control = make_control_center(Path(tmp))
