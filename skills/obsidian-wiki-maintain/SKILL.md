@@ -1,26 +1,27 @@
 ---
 name: obsidian-wiki-maintain
-description: Use this whenever the user wants to health-check, lint, audit, repair, or maintain an Obsidian LLM Wiki. Trigger on requests like "做健康检查", "check the wiki", "lint wiki", "find broken links", "find orphan pages", "check index/log consistency", "check sensitive information spread", or "repair missing index links". This skill is for structure and safety, not knowledge Q&A.
+description: Use this whenever the user wants to repair, fix, patch, update, or apply approved structural fixes to an Obsidian LLM Wiki. Route diagnosis, validation, scoring, and health reports to obsidian-wiki-doctor first. This skill is for applying confirmed structure and safety repairs, not knowledge Q&A.
 ---
 
 # Obsidian Wiki Maintain
 
-Maintain wiki structure, consistency, and safety.
+Repair confirmed Obsidian LLM Wiki structure, consistency, and safety issues.
+Detection belongs to `obsidian-wiki-doctor`; maintain applies approved fixes.
 
 ## When To Use
 
 Use this skill when the user wants to:
 
-- run a wiki health check
-- find broken links
-- find orphan pages
-- check `index.md` and `log.md` consistency
-- check `ingest/index.md` batch and source proxy consistency
-- detect missing topic/project/entity/SOP pages
-- scan for sensitive information spread
-- apply narrow structural repairs
+- apply approved structural repairs from `obsidian-wiki-doctor`
+- fix confirmed missing `index.md` entries
+- patch confirmed broken relative wiki links
+- update `log.md` for an approved maintenance action
+- apply a narrow, user-approved cleanup to specific wiki files
 
-Do not use this skill to answer knowledge questions. Use `obsidian-wiki-query`.
+Do not use this skill for read-only diagnosis, validation, scoring, or health
+reports. Use `obsidian-wiki-doctor` first, then return here to apply approved
+repairs. Do not use this skill to answer knowledge questions. Use
+`obsidian-wiki-query`.
 
 ## Wiki Root Resolution
 
@@ -46,27 +47,20 @@ explicitly says it is the target wiki.
 Follow `references/health-check-rules.md`.
 
 1. Resolve and state the active Obsidian wiki root.
-2. Read `wiki/index.md`, `wiki/log.md`, and `ingest/index.md` when present.
-3. Inspect page groups.
-4. Check links, coverage, and consistency.
-5. Scan generated wiki pages for sensitive patterns.
-6. Produce a health report.
-7. Ask before broad repairs.
-8. Apply only approved fixes.
+2. Run `scripts/obsidian_wiki_doctor.py` through `obsidian-wiki-doctor`, or
+   consume doctor findings supplied by the user.
+3. Restate the approved repair scope in concrete file paths.
+4. Ask before broad repairs or sensitive cleanup.
+5. Apply approved narrow fixes only.
+6. Update `log.md` with the maintenance action.
+7. Return changed files, skipped findings, and remaining risks.
 
 ## Output
 
-- `健康检查-YYYY-MM-DD.md`
 - optional `index.md` updates
 - optional `log.md` updates
 - optional `ingest/index.md` consistency notes
 - optional narrow page-link repairs
-
-## Finding Levels
-
-- Error: broken or dangerous state requiring action
-- Warning: likely issue or missing structure
-- Info: useful observation or improvement idea
 
 ## Safety Rules
 
@@ -74,22 +68,18 @@ Follow `references/safety-rules.md`.
 
 Do not rewrite large sets of pages without confirmation.
 
-## Report Format
-
-Use `references/health-report-template.md`.
-
 ## Examples
 
 Input:
 
 ```text
-Run a health check on the current wiki.
+Apply the doctor finding that wiki/projects/foo.md is missing from index.md.
 ```
 
 Expected behavior:
 
 ```text
-Create a health report with Errors, Warnings, Info, and suggested fixes.
+Update index.md for the confirmed page and record the change in log.md.
 ```
 
 Input:

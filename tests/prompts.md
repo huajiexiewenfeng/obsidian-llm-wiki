@@ -60,7 +60,7 @@ Expected:
 - links source proxy nodes from `<control-center>/wiki/index.md` and topic/project/entity/SOP pages so they appear in the Obsidian graph
 - produces plan/report and updates wiki pages only after confirmation
 
-## obsidian-wiki-maintain
+## obsidian-wiki-doctor
 
 ```text
 Run a health check on the current wiki and report Errors, Warnings, and Info.
@@ -80,8 +80,30 @@ Expected:
 - does not answer domain questions
 - does not print secret values
 - checks `ingest/index.md` consistency with source proxy nodes when present
-- asks before broad repairs
+- routes repair work to `obsidian-wiki-maintain` only after findings are concrete
 
+## obsidian-wiki-maintain
+
+```text
+Apply the doctor finding that wiki/projects/foo.md is missing from index.md.
+```
+
+```text
+Patch only the confirmed broken relative link in wiki/topics/video.md to wiki/projects/streaming.md.
+```
+
+```text
+Update log.md after applying the approved ingest/index.md consistency fix. Do not touch other files.
+```
+
+Expected:
+
+- resolves and states the active Obsidian wiki root
+- consumes doctor findings or user-approved structural fixes
+- restates the repair scope in concrete file paths
+- asks before broad repairs or sensitive cleanup
+- updates `log.md` for applied maintenance
+- returns changed files, skipped findings, and remaining risks
 ## obsidian-wiki-query
 
 ```text
