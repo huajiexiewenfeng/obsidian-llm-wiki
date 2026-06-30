@@ -60,5 +60,49 @@ class RootResolutionTests(unittest.TestCase):
             self.assertEqual(payload["root"]["control_center"], str(control.resolve()))
 
 
+class ValidationCheckTests(unittest.TestCase):
+    def test_missing_wiki_index_is_error_when_log_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp) / "00-\u77e5\u8bc6\u5e93\u4e2d\u63a7"
+            write(control / "wiki" / "log.md", "# Log\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("missing-wiki-index", {item["check"] for item in findings})
+
+    def test_broken_index_link_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp) / "00-\u77e5\u8bc6\u5e93\u4e2d\u63a7"
+            write(control / "wiki" / "index.md", "# Index\n\n- [Missing](topics/missing.md)\n")
+            write(control / "wiki" / "log.md", "# Log\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            broken = [item for item in findings if item["check"] == "broken-index-link"]
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(broken[0]["severity"], "ERROR")
+            self.assertIn("topics/missing.md", broken[0]["message"])
+
+    def test_missing_source_proxy_for_processed_ingest_row_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "ingest" / "index.md", "| source | proxy | status | wiki_entry |\n|---|---|---|---|\n| D:/docs/a.md | sources/a.md | processed | topics/a.md |\n")
+            write(control / "wiki" / "topics" / "a.md", "# A\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            self.assertIn("missing-source-proxy", {item["check"] for item in findings})
+
+    def test_safety_check_redacts_secret_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "sources" / "secret.md", "# Secret\n\ntoken=redacted-example-value\n")
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+            sensitive = [item for item in findings if item["check"] == "sensitive-pattern"]
+            self.assertTrue(sensitive)
+            serialized = json.dumps(sensitive, ensure_ascii=False)
+            self.assertIn("token", serialized)
+            self.assertNotIn("redacted-example-value", serialized)
+
+
 if __name__ == "__main__":
     unittest.main()

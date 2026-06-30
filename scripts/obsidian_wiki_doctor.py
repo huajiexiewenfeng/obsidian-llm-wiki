@@ -12,6 +12,20 @@ from pathlib import Path
 DEFAULT_CONTROL_CENTER = Path(r"C:\Users\admin\Documents\Obsidian Vault\00-知识库中控")
 ENV_ROOT = "OBSIDIAN_LLM_WIKI_ROOT"
 
+MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+SENSITIVE_PATTERNS = [
+    ("password", re.compile(r"(?i)\bpassword\s*[:=]")),
+    ("token", re.compile(r"(?i)\btoken\s*[:=]")),
+    ("secret", re.compile(r"(?i)\bsecret\s*[:=]")),
+    ("ak-sk", re.compile(r"(?i)\bAK/SK\b|access[_-]?key|secret[_-]?key")),
+    ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("cookie", re.compile(r"(?i)\bcookie\s*[:=]")),
+    ("credentialed-rtsp", re.compile(r"(?i)rtsp://[^\s/@:]+:[^\s/@]+@")),
+    ("connection-string", re.compile(r"(?i)(jdbc:|mongodb://|postgres://|mysql://)")),
+    ("internal-endpoint", re.compile(r"(?i)https?://(?:10\.|172\.(?:1[6-9]|2\d|3[0-1])\.|192\.168\.|localhost|127\.0\.0\.1)")),
+]
+
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -152,6 +166,147 @@ def parse_markdown_table_rows(text: str) -> list[dict[str, str]]:
     return rows
 
 
+
+def iter_markdown_files(wiki_root: Path) -> list[Path]:
+    if not wiki_root.is_dir():
+        return []
+    return sorted(path for path in wiki_root.rglob("*.md") if path.is_file())
+
+
+def repo_path(root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def resolve_markdown_link(source: Path, target: str) -> Path | None:
+    target = target.strip()
+    if not target or target.startswith("#"):
+        return None
+    if re.match(r"(?i)^[a-z][a-z0-9+.-]*:", target) or target.startswith("//"):
+        return None
+
+    target_without_anchor = target.split("#", 1)[0].strip()
+    if not target_without_anchor:
+        return None
+    return (source.parent / target_without_anchor).resolve()
+
+
+def table_dicts(text: str) -> list[dict[str, str]]:
+    return parse_markdown_table_rows(text)
+
+
+def check_required_structure(root: ResolvedRoot, state: WikiState) -> list[Finding]:
+    if root.wiki_root is None:
+        return []
+
+    findings: list[Finding] = []
+    index = root.wiki_root / "index.md"
+    log = root.wiki_root / "log.md"
+    if log.is_file() and not index.is_file():
+        findings.append(Finding(
+            check="missing-wiki-index",
+            severity="ERROR",
+            path=repo_path(root.wiki_root, index),
+            message="wiki/log.md exists but wiki/index.md is missing.",
+            hint="Create wiki/index.md or rerun wiki initialization.",
+        ))
+    if index.is_file() and not log.is_file():
+        findings.append(Finding(
+            check="missing-wiki-log",
+            severity="ERROR",
+            path=repo_path(root.wiki_root, log),
+            message="wiki/index.md exists but wiki/log.md is missing.",
+            hint="Create wiki/log.md or rerun wiki initialization.",
+        ))
+
+    if state.init_done and root.control_center is not None:
+        roadmap = root.control_center / "00.LLM Wiki \u5efa\u8bbe\u8def\u7ebf\u56fe.md"
+        knowledge_map = root.control_center / "00.\u77e5\u8bc6\u5e93\u5730\u56fe.md"
+        if not roadmap.is_file():
+            findings.append(Finding(
+                check="missing-roadmap",
+                severity="WARN",
+                path=repo_path(root.control_center, roadmap),
+                message="Control-center roadmap is missing.",
+            ))
+        if not knowledge_map.is_file():
+            findings.append(Finding(
+                check="missing-knowledge-map",
+                severity="WARN",
+                path=repo_path(root.control_center, knowledge_map),
+                message="Control-center knowledge map is missing.",
+            ))
+    return findings
+
+
+def check_links(root: ResolvedRoot) -> list[Finding]:
+    if root.wiki_root is None:
+        return []
+
+    findings: list[Finding] = []
+    for markdown_file in iter_markdown_files(root.wiki_root):
+        text = read_text(markdown_file)
+        for match in MARKDOWN_LINK_RE.finditer(text):
+            target = match.group(1)
+            resolved = resolve_markdown_link(markdown_file, target)
+            if resolved is None or resolved.exists():
+                continue
+            is_root_index = markdown_file == root.wiki_root / "index.md"
+            check = "broken-index-link" if is_root_index else "broken-internal-link"
+            severity = "ERROR" if is_root_index else "WARN"
+            findings.append(Finding(
+                check=check,
+                severity=severity,
+                path=repo_path(root.wiki_root, markdown_file),
+                message=f"Markdown link target does not exist: {target}",
+            ))
+    return findings
+
+
+def check_ingest(root: ResolvedRoot, state: WikiState) -> list[Finding]:
+    if not state.ingest_started or root.control_center is None or root.wiki_root is None:
+        return []
+
+    ingest_index = root.control_center / "ingest" / "index.md"
+    if not ingest_index.is_file():
+        return []
+
+    findings: list[Finding] = []
+    for row in table_dicts(read_text(ingest_index)):
+        status = row.get("status", "").strip().lower()
+        proxy = row.get("proxy", "").strip()
+        if status == "processed" and proxy and not (root.wiki_root / proxy).is_file():
+            findings.append(Finding(
+                check="missing-source-proxy",
+                severity="ERROR",
+                path=repo_path(root.control_center, ingest_index),
+                message=f"Processed ingest row references missing source proxy: {proxy}",
+            ))
+    return findings
+
+
+def check_safety(root: ResolvedRoot) -> list[Finding]:
+    if root.wiki_root is None:
+        return []
+
+    findings: list[Finding] = []
+    for markdown_file in iter_markdown_files(root.wiki_root):
+        for line_number, line in enumerate(read_text(markdown_file).splitlines(), start=1):
+            for category, pattern in SENSITIVE_PATTERNS:
+                if pattern.search(line):
+                    findings.append(Finding(
+                        check="sensitive-pattern",
+                        severity="ERROR",
+                        path=repo_path(root.wiki_root, markdown_file),
+                        line=line_number,
+                        message=f"Sensitive pattern '{category}' found in {repo_path(root.wiki_root, markdown_file)} at line {line_number}.",
+                    ))
+                    break
+    return findings
+
+
 def build_state(root: ResolvedRoot) -> WikiState:
     wiki_root = root.wiki_root
     control_center = root.control_center
@@ -166,7 +321,7 @@ def build_state(root: ResolvedRoot) -> WikiState:
     if control_center is not None:
         ingest_index = control_center / "ingest" / "index.md"
         if ingest_index.is_file():
-            ingest_started = bool(parse_markdown_table_rows(read_text(ingest_index)))
+            ingest_started = bool(table_dicts(read_text(ingest_index)))
 
     generated_pages_exist = any(wiki_root.rglob("*.md"))
     return WikiState(init_done, onboarding_done, inventory_done, ingest_started, generated_pages_exist)
@@ -175,7 +330,13 @@ def build_state(root: ResolvedRoot) -> WikiState:
 def run_checks(root: ResolvedRoot, state: WikiState) -> list[Finding]:
     if root.error is not None:
         return [root.error]
-    return []
+
+    findings: list[Finding] = []
+    findings.extend(check_required_structure(root, state))
+    findings.extend(check_links(root))
+    findings.extend(check_ingest(root, state))
+    findings.extend(check_safety(root))
+    return findings
 
 
 def root_to_dict(root: ResolvedRoot) -> dict[str, object]:
