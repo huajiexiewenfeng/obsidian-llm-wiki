@@ -24,7 +24,7 @@ Create:
 Modify:
 
 - `skills/obsidian-wiki-maintain/SKILL.md`: repair-only trigger and workflow.
-- `skills/obsidian-wiki-maintain/references/health-check-rules.md`: repair policy only.
+- `skills/obsidian-wiki-maintain/references/repair-policy.md`: repair policy only.
 - `skills/obsidian-wiki-init/SKILL.md`: recommend doctor report after init; no vendoring in V0.
 - `skills/obsidian-wiki-query/SKILL.md`: route structural/query-quality diagnosis to doctor.
 - `README.md`, `README.zh.md`, `docs/architecture.md`, `docs/safety.md`, `docs/development-plan.md`, `docs/workflow.md`, `tests/prompts.md`: five-skill framing and verification prompts.
@@ -550,7 +550,7 @@ git commit -m "feat: add obsidian wiki doctor skill"
 
 **Files:**
 - Modify: `skills/obsidian-wiki-maintain/SKILL.md`
-- Modify: `skills/obsidian-wiki-maintain/references/health-check-rules.md`
+- Modify: `skills/obsidian-wiki-maintain/references/repair-policy.md`
 - Modify: `tests/prompts.md`
 
 - [ ] **Step 1: Rewrite maintain description**
@@ -585,7 +585,7 @@ This skill is the write side of the Doctor/Maintain pair. Detection belongs to `
 
 - [ ] **Step 3: Replace health-check rules with repair policy**
 
-`skills/obsidian-wiki-maintain/references/health-check-rules.md` must start with:
+`skills/obsidian-wiki-maintain/references/repair-policy.md` must start with:
 
 ```markdown
 # Maintain Repair Policy
@@ -627,7 +627,7 @@ Expected: maintain-owned read-only diagnosis phrases are gone; references are al
 - [ ] **Step 6: Commit maintain re-scope**
 
 ```powershell
-git add skills/obsidian-wiki-maintain/SKILL.md skills/obsidian-wiki-maintain/references/health-check-rules.md tests/prompts.md
+git add skills/obsidian-wiki-maintain/SKILL.md skills/obsidian-wiki-maintain/references/repair-policy.md tests/prompts.md
 git commit -m "refactor: route wiki diagnosis through doctor"
 ```
 

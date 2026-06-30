@@ -18,7 +18,7 @@ against the real repository:
 2. **Skills are split by read vs. write, not by check list.** Doctor diagnoses
    and scores; maintain repairs. This removes the routing collision between the
    two skills.
-3. **`maintain` is re-scoped, not duplicated.** `maintain/references/health-check-rules.md`
+3. **`maintain` is re-scoped, not duplicated.** `maintain/references/repair-policy.md`
    stops owning detection prose and instead points at the doctor engine.
 4. **Four-skill framing is fixed everywhere.** `README.md`, `README.zh.md`,
    `docs/architecture.md`, and `docs/safety.md` are updated to describe five
@@ -299,7 +299,7 @@ This is required so the two skills do not collide.
 - Rewrite `obsidian-wiki-maintain/SKILL.md` `description` to trigger on **repair**
   verbs only (fix / repair / 补链接 / 修复 / 改 index), not on "check / lint /
   find broken links / find orphan pages".
-- In `maintain/references/health-check-rules.md`, replace the duplicated check
+- In `maintain/references/repair-policy.md`, replace the duplicated check
   list with a pointer: detection is performed by the doctor engine; this file
   now documents only the **repair policy** (what is safe to fix automatically vs.
   what needs confirmation).
@@ -333,7 +333,7 @@ Modify (note the four previously-missing files marked *new in v2*):
 - `tests/prompts.md`
 - `skills/obsidian-wiki-init/SKILL.md`
 - `skills/obsidian-wiki-maintain/SKILL.md`  *(re-scope to repair-only)*
-- `skills/obsidian-wiki-maintain/references/health-check-rules.md`  *(new in v2 — point at engine)*
+- `skills/obsidian-wiki-maintain/references/repair-policy.md`  *(new in v2 — point at engine)*
 - `skills/obsidian-wiki-query/SKILL.md`
 
 Optional V0.1:

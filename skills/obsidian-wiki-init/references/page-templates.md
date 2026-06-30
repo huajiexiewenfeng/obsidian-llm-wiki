@@ -113,7 +113,7 @@
 
 ## 第三阶段：执行 obsidian-wiki-ingest
 
-## 第四阶段：执行 obsidian-wiki-maintain
+## 第四阶段：执行 obsidian-wiki-doctor
 
 ## 第五阶段：执行 obsidian-wiki-query
 

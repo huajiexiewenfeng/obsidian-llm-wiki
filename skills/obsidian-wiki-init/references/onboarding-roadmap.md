@@ -44,7 +44,7 @@ State the strategy. For an existing vault, prefer:
 - do not reorganize all folders at once
 - build a wiki layer above existing material
 - start with one to three high-value batches
-- use health checks after each batch
+- run `obsidian-wiki-doctor` after each meaningful batch
 
 ## 第一阶段：盘点和范围确认
 
@@ -83,17 +83,18 @@ Explain that the next skill should:
 - update `index.md`
 - append `log.md`
 
-## 第四阶段：执行 obsidian-wiki-maintain
+## 第四阶段：执行 obsidian-wiki-doctor
 
-Explain that maintenance should run after each meaningful ingest batch.
+Explain that doctor diagnosis should run after each meaningful ingest batch.
 
-Checks:
+Doctor checks:
 
 - missing index entries
 - broken links
 - orphan pages
 - missing entity/project/SOP pages
 - sensitive information spread
+- hand off approved repair findings to obsidian-wiki-maintain only when edits are needed
 
 ## 第五阶段：执行 obsidian-wiki-query
 
