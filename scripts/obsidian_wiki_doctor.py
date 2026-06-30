@@ -212,6 +212,26 @@ def redact_sensitive_text(value: str) -> str:
     )
 
 
+def safe_text(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return redact_sensitive_text(str(value))
+
+
+def safe_finding(finding: Finding) -> Finding:
+    return Finding(
+        check=finding.check,
+        severity=finding.severity,
+        path=safe_text(finding.path) or "",
+        message=safe_text(finding.message) or "",
+        line=finding.line,
+        hint=safe_text(finding.hint),
+    )
+
+
+def safe_finding_dict(finding: Finding) -> dict[str, object]:
+    return asdict(safe_finding(finding))
+
 def markdown_link_target(target: str) -> str:
     target = target.strip()
     if target.startswith("<") and ">" in target:
@@ -412,15 +432,14 @@ def run_checks(root: ResolvedRoot, state: WikiState) -> list[Finding]:
 
 def root_to_dict(root: ResolvedRoot) -> dict[str, object]:
     payload: dict[str, object] = {
-        "control_center": str(root.control_center) if root.control_center else None,
-        "wiki_root": str(root.wiki_root) if root.wiki_root else None,
-        "input_root": str(root.input_root) if root.input_root else None,
+        "control_center": safe_text(root.control_center) if root.control_center else None,
+        "wiki_root": safe_text(root.wiki_root) if root.wiki_root else None,
+        "input_root": safe_text(root.input_root) if root.input_root else None,
         "source": root.source,
     }
     if root.error is not None:
-        payload["error"] = asdict(root.error)
+        payload["error"] = safe_finding_dict(root.error)
     return payload
-
 
 def score_level(score: int) -> str:
     if score >= 90:
@@ -454,69 +473,103 @@ def build_score_report(root: ResolvedRoot, state: WikiState, findings: list[Find
         message="Root could not be resolved." if root.error is not None else "Root resolves to a wiki control center.",
     ))
 
-    navigation_error = has_error(findings, "missing-wiki-index", "missing-wiki-log", "broken-index-link") or root.error is not None
-    navigation_warning = has_warning(findings, "missing-roadmap", "missing-knowledge-map", "broken-internal-link")
-    if navigation_error:
-        navigation_score = 0
-        navigation_message = "Index, log, or root navigation has blocking errors."
-    elif navigation_warning:
-        navigation_score = 15
-        navigation_message = "Navigation works but discoverability warnings remain."
+    if root.error is not None:
+        blocked_message = "Not evaluated because the root did not resolve."
+        dimensions.extend([
+            ScoreDimension(
+                name="Navigation and discoverability",
+                weight=25,
+                score=None,
+                applicability="not-applicable",
+                message=blocked_message,
+            ),
+            ScoreDimension(
+                name="Ingest traceability",
+                weight=20,
+                score=None,
+                applicability="not-applicable",
+                message=blocked_message,
+            ),
+            ScoreDimension(
+                name="Safety hygiene",
+                weight=20,
+                score=None,
+                applicability="not-applicable",
+                message=blocked_message,
+            ),
+            ScoreDimension(
+                name="Query readiness",
+                weight=15,
+                score=None,
+                applicability="not-applicable",
+                message=blocked_message,
+            ),
+        ])
     else:
-        navigation_score = 25
-        navigation_message = "Index, log, and internal navigation are discoverable."
-    dimensions.append(ScoreDimension(
-        name="Navigation and discoverability",
-        weight=25,
-        score=navigation_score,
-        applicability="applicable",
-        message=navigation_message,
-    ))
-
-    if state.ingest_started:
-        ingest_error = has_error(findings, "missing-source-proxy")
+        navigation_error = has_error(findings, "missing-wiki-index", "missing-wiki-log", "broken-index-link")
+        navigation_warning = has_warning(findings, "missing-roadmap", "missing-knowledge-map", "broken-internal-link")
+        if navigation_error:
+            navigation_score = 0
+            navigation_message = "Index, log, or root navigation has blocking errors."
+        elif navigation_warning:
+            navigation_score = 15
+            navigation_message = "Navigation works but discoverability warnings remain."
+        else:
+            navigation_score = 25
+            navigation_message = "Index, log, and internal navigation are discoverable."
         dimensions.append(ScoreDimension(
-            name="Ingest traceability",
-            weight=20,
-            score=0 if ingest_error else 20,
+            name="Navigation and discoverability",
+            weight=25,
+            score=navigation_score,
             applicability="applicable",
-            message="Processed ingest rows have missing source proxies." if ingest_error else "Ingest rows are traceable to source proxies.",
+            message=navigation_message,
         ))
-    else:
+
+        if state.ingest_started:
+            ingest_error = has_error(findings, "missing-source-proxy")
+            dimensions.append(ScoreDimension(
+                name="Ingest traceability",
+                weight=20,
+                score=0 if ingest_error else 20,
+                applicability="applicable",
+                message="Processed ingest rows have missing source proxies." if ingest_error else "Ingest rows are traceable to source proxies.",
+            ))
+        else:
+            dimensions.append(ScoreDimension(
+                name="Ingest traceability",
+                weight=20,
+                score=None,
+                applicability="not-applicable",
+                message="No ingest rows are present yet.",
+            ))
+
+        safety_error = has_error(findings, "sensitive-pattern")
         dimensions.append(ScoreDimension(
-            name="Ingest traceability",
+            name="Safety hygiene",
             weight=20,
-            score=None,
-            applicability="not-applicable",
-            message="No ingest rows are present yet.",
+            score=0 if safety_error else 20,
+            applicability="applicable",
+            message="Sensitive patterns require cleanup." if safety_error else "No sensitive patterns were detected.",
         ))
 
-    safety_error = has_error(findings, "sensitive-pattern")
-    dimensions.append(ScoreDimension(
-        name="Safety hygiene",
-        weight=20,
-        score=0 if safety_error else 20,
-        applicability="applicable",
-        message="Sensitive patterns require cleanup." if safety_error else "No sensitive patterns were detected.",
-    ))
-
-    query_ready = state.generated_pages_exist and root.error is None
-    dimensions.append(ScoreDimension(
-        name="Query readiness",
-        weight=15,
-        score=15 if query_ready else 0,
-        applicability="applicable",
-        message="Generated wiki pages are available for queries." if query_ready else "Generated wiki pages are not ready for queries.",
-    ))
+        query_ready = state.generated_pages_exist
+        dimensions.append(ScoreDimension(
+            name="Query readiness",
+            weight=15,
+            score=15 if query_ready else 0,
+            applicability="applicable",
+            message="Generated wiki pages are available for queries." if query_ready else "Generated wiki pages are not ready for queries.",
+        ))
 
     applicable = [dimension for dimension in dimensions if dimension.applicability == "applicable"]
     earned = sum(dimension.score or 0 for dimension in applicable)
     possible = sum(dimension.weight for dimension in applicable)
     score = round((earned / possible) * 100) if possible else 0
 
+    safe_findings = [safe_finding(finding) for finding in findings]
     next_steps = [
         f"修复 {finding.severity} finding: {finding.check} ({finding.path})"
-        for finding in findings
+        for finding in safe_findings
         if finding.severity == "ERROR"
     ]
     if not next_steps:
@@ -530,7 +583,6 @@ def build_score_report(root: ResolvedRoot, state: WikiState, findings: list[Find
         signals=asdict(state),
         next_steps=next_steps,
     )
-
 
 def score_to_dict(report: ScoreReport, root: ResolvedRoot) -> dict[str, object]:
     return {
@@ -554,16 +606,18 @@ def calculate_score(state: WikiState, findings: list[Finding]) -> dict[str, obje
 
 def format_report_text(root: ResolvedRoot, state: WikiState, findings: list[Finding]) -> str:
     report = build_score_report(root, state, findings)
-    root_path = root.wiki_root or root.input_root or root.control_center
+    root_payload = root_to_dict(root)
+    root_path = root_payload["wiki_root"] or root_payload["input_root"] or root_payload["control_center"]
+    safe_findings = [safe_finding(finding) for finding in findings]
     finding_lines = [
         f"- {finding.severity} {finding.check}: {finding.path}: {finding.message}"
-        for finding in findings
+        for finding in safe_findings
     ] or ["- OK: 未发现阻断性 findings。"]
     dimension_lines = [
         f"- {dimension.name}: {dimension.score if dimension.score is not None else 'N/A'}/{dimension.weight} ({dimension.applicability}) - {dimension.message}"
         for dimension in report.dimensions
     ]
-    next_step_lines = [f"- {step}" for step in report.next_steps]
+    next_step_lines = [f"- {safe_text(step)}" for step in report.next_steps]
     state_lines = [f"- {key}: {value}" for key, value in asdict(state).items()]
 
     sections = [
@@ -582,9 +636,9 @@ def format_report_text(root: ResolvedRoot, state: WikiState, findings: list[Find
         "## Doctor Findings",
         *finding_lines,
         "## 证据与路径",
-        f"- control_center: {root.control_center}",
-        f"- wiki_root: {root.wiki_root}",
-        f"- input_root: {root.input_root}",
+        f"- control_center: {root_payload['control_center']}",
+        f"- wiki_root: {root_payload['wiki_root']}",
+        f"- input_root: {root_payload['input_root']}",
         f"- report_root: {root_path}",
         *state_lines,
         "## Repair Handoff",
@@ -597,13 +651,13 @@ def emit_json(payload: object) -> None:
 
 
 def emit_findings_text(findings: list[Finding]) -> None:
-    if not findings:
+    safe_findings = [safe_finding(finding) for finding in findings]
+    if not safe_findings:
         print("OK")
         return
-    for finding in findings:
+    for finding in safe_findings:
         location = finding.path or "<unknown>"
         print(f"{finding.severity}: {finding.check}: {location}: {finding.message}")
-
 
 def should_fail(findings: list[Finding], fail_on: str) -> bool:
     if fail_on == "none":
@@ -616,7 +670,7 @@ def run_validate(args: argparse.Namespace) -> int:
     state = build_state(root)
     findings = run_checks(root, state)
     if args.format == "json":
-        emit_json([asdict(finding) for finding in findings])
+        emit_json([safe_finding_dict(finding) for finding in findings])
     else:
         emit_findings_text(findings)
     return 1 if should_fail(findings, args.fail_on) else 0
@@ -642,7 +696,7 @@ def run_report(args: argparse.Namespace) -> int:
     payload = {
         "root": root_to_dict(root),
         "state": asdict(state),
-        "findings": [asdict(finding) for finding in findings],
+        "findings": [safe_finding_dict(finding) for finding in findings],
         "score": score_to_dict(report, root),
     }
     if args.format == "json":

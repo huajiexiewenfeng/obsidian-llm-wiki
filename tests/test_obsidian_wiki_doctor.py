@@ -215,5 +215,30 @@ class ScoreAndReportTests(unittest.TestCase):
             self.assertIn("findings", payload)
             self.assertIn("score", payload)
 
+    def test_invalid_root_blocks_downstream_dimensions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "token-redacted-example-value"
+            result = run_doctor("score", "--root", str(missing), "--format", "json")
+            payload = json.loads(result.stdout)
+            dimensions = {item["name"]: item for item in payload["dimensions"]}
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(payload["score"], 0)
+            self.assertEqual(dimensions["Control center resolution"]["score"], 0)
+            self.assertEqual(dimensions["Safety hygiene"]["applicability"], "not-applicable")
+            self.assertIsNone(dimensions["Safety hygiene"]["score"])
+
+    def test_secret_like_invalid_root_is_redacted_in_report_and_score(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "token-redacted-example-value"
+            report_json = run_doctor("report", "--root", str(missing), "--format", "json")
+            report_text = run_doctor("report", "--root", str(missing), "--format", "text")
+            score_json = run_doctor("score", "--root", str(missing), "--format", "json")
+            self.assertEqual(report_json.returncode, 0)
+            self.assertEqual(report_text.returncode, 0)
+            self.assertEqual(score_json.returncode, 0)
+            self.assertNotIn("redacted-example-value", report_json.stdout)
+            self.assertNotIn("redacted-example-value", report_text.stdout)
+            self.assertNotIn("redacted-example-value", score_json.stdout)
+
 if __name__ == "__main__":
     unittest.main()
