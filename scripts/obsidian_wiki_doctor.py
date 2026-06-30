@@ -42,15 +42,22 @@ class WikiState:
 
 
 def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    return path.read_text(encoding="utf-8-sig")
+
+
+def has_wiki_marker(path: Path) -> bool:
+    return (path / "index.md").is_file() or (path / "log.md").is_file()
 
 
 def is_control_center(path: Path) -> bool:
-    return path.is_dir() and is_direct_wiki_root(path / "wiki")
+    if not path.is_dir():
+        return False
+    wiki_root = path / "wiki"
+    return wiki_root.is_dir() or has_wiki_marker(wiki_root)
 
 
 def is_direct_wiki_root(path: Path) -> bool:
-    return path.is_dir() and (path / "index.md").is_file()
+    return path.is_dir() and has_wiki_marker(path)
 
 
 def invalid_root(path: Path, source: str) -> ResolvedRoot:
@@ -147,14 +154,21 @@ def parse_markdown_table_rows(text: str) -> list[dict[str, str]]:
 
 def build_state(root: ResolvedRoot) -> WikiState:
     wiki_root = root.wiki_root
+    control_center = root.control_center
     if wiki_root is None:
         return WikiState(False, False, False, False, False)
 
-    init_done = (wiki_root / "index.md").is_file()
-    onboarding_done = any((wiki_root / name).is_file() for name in ("onboarding.md", "README.md", "readme.md"))
-    inventory_done = any((wiki_root / name).is_file() for name in ("inventory.md", "sources.md", "source-inventory.md"))
-    ingest_started = (wiki_root / "sources").is_dir() or (wiki_root / "log.md").is_file()
-    generated_pages_exist = (wiki_root / "topics").is_dir() or any(wiki_root.glob("*.md"))
+    init_done = (wiki_root / "index.md").is_file() and (wiki_root / "log.md").is_file()
+    onboarding_done = control_center is not None and (control_center / "00.LLM Wiki 建设路线图.md").is_file()
+    inventory_done = control_center is not None and (control_center / "00.知识库地图.md").is_file()
+
+    ingest_started = False
+    if control_center is not None:
+        ingest_index = control_center / "ingest" / "index.md"
+        if ingest_index.is_file():
+            ingest_started = bool(parse_markdown_table_rows(read_text(ingest_index)))
+
+    generated_pages_exist = any(wiki_root.rglob("*.md"))
     return WikiState(init_done, onboarding_done, inventory_done, ingest_started, generated_pages_exist)
 
 
