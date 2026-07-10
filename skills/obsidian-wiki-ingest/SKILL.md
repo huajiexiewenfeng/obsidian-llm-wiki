@@ -3,6 +3,12 @@ name: obsidian-wiki-ingest
 description: Use this whenever the user wants to ingest, import, index, summarize, organize, or turn Obsidian notes or external folders into an Obsidian LLM Wiki. Trigger on requests like "整理这个目录", "把这个目录做成 wiki", "ingest this file", "scan these external folders", "bring these documents into my knowledge base", or "process raw files". External files are path-indexed by default and copied into raw only after explicit confirmation.
 ---
 
+
+## First-Use Vault Setup
+
+Treat root configuration as background setup, not a JSON-file task for the user. If normal resolution has no root, run `python scripts/llm_wiki.py root discover --format json`. Show returned existing absolute paths as numbered candidates and ask the user to select one or provide another absolute Vault path. Resolve the selected path and state `vault_root`, `control_center`, and `wiki_root`. Only after the user confirms it should become the default, run `root configure --root <path> --activate --confirm`.
+
+Do not read note content or scan the whole disk during discovery. Continue the user's original request after setup succeeds.
 # Obsidian Wiki Ingest
 
 Ingest existing vault content, files in `raw/`, or external files and folders into the LLM Wiki.

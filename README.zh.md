@@ -137,6 +137,10 @@ python scripts/llm_wiki.py root resolve --cwd . --format json
 
 ## 使用示例
 
+### 首次设置 Vault
+
+不需要先手工创建 JSON 配置。未配置 Wiki 时，Skill 会读取 Obsidian 最近使用的 Vault 元数据，展示已有的绝对路径并请你选择；确认后在后台保存为默认 Vault，再继续原请求。发现过程不读取笔记，也不扫描整块磁盘。
+
 自然表达即可：
 
 ```text

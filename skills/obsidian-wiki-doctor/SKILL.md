@@ -3,6 +3,12 @@ name: obsidian-wiki-doctor
 description: Use this whenever the user wants to diagnose, validate, score, report on, or explain the health or maturity of an Obsidian LLM Wiki, including prompts like "run Obsidian Wiki Doctor", "诊断 wiki", "给 wiki 打健康分", "出中文健康报告", "看看初始化后有没有用", or questions about whether poor query quality is caused by wiki structure. This skill is read-only and never repairs files.
 ---
 
+
+## First-Use Vault Setup
+
+Treat root configuration as background setup, not a JSON-file task for the user. If normal resolution has no root, run `python scripts/llm_wiki.py root discover --format json`. Show returned existing absolute paths as numbered candidates and ask the user to select one or provide another absolute Vault path. Resolve the selected path and state `vault_root`, `control_center`, and `wiki_root`. Only after the user confirms it should become the default, run `root configure --root <path> --activate --confirm`.
+
+Do not read note content or scan the whole disk during discovery. Continue the user's original request after setup succeeds.
 # Obsidian Wiki Doctor
 
 Diagnose an Obsidian LLM Wiki with the deterministic doctor engine.

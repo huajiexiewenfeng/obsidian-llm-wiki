@@ -3,6 +3,12 @@ name: obsidian-wiki-query
 description: Use this whenever the user asks questions that should be answered from an Obsidian LLM Wiki or personal knowledge base. Trigger on requests like "基于当前 wiki 回答", "according to my knowledge base", "从 Obsidian 里找", "summarize from my wiki", "generate an outline from my knowledge base", or "what do my notes say about...". This skill reads wiki pages first and only falls back to raw/source material when needed.
 ---
 
+
+## First-Use Vault Setup
+
+Treat root configuration as background setup, not a JSON-file task for the user. If normal resolution has no root, run `python scripts/llm_wiki.py root discover --format json`. Show returned existing absolute paths as numbered candidates and ask the user to select one or provide another absolute Vault path. Resolve the selected path and state `vault_root`, `control_center`, and `wiki_root`. Only after the user confirms it should become the default, run `root configure --root <path> --activate --confirm`.
+
+Do not read note content or scan the whole disk during discovery. Continue the user's original request after setup succeeds.
 # Obsidian Wiki Query
 
 Answer questions from the Obsidian LLM Wiki.

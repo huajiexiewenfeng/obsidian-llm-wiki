@@ -3,6 +3,12 @@ name: obsidian-wiki-maintain
 description: Use this whenever the user wants to repair, fix, patch, update, or apply approved structural fixes to an Obsidian LLM Wiki. Route diagnosis, validation, scoring, and health reports to obsidian-wiki-doctor first. This skill is for applying confirmed structure and safety repairs, not knowledge Q&A.
 ---
 
+
+## First-Use Vault Setup
+
+Treat root configuration as background setup, not a JSON-file task for the user. If normal resolution has no root, run `python scripts/llm_wiki.py root discover --format json`. Show returned existing absolute paths as numbered candidates and ask the user to select one or provide another absolute Vault path. Resolve the selected path and state `vault_root`, `control_center`, and `wiki_root`. Only after the user confirms it should become the default, run `root configure --root <path> --activate --confirm`.
+
+Do not read note content or scan the whole disk during discovery. Continue the user's original request after setup succeeds.
 # Obsidian Wiki Maintain
 
 Repair confirmed Obsidian LLM Wiki structure, consistency, and safety issues.

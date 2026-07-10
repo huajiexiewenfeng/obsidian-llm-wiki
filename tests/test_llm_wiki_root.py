@@ -357,5 +357,21 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertEqual(matches, [])
 
 
+class DiscoveryDocumentationTests(unittest.TestCase):
+    def test_every_skill_documents_discovery_confirmation_and_no_scan(self):
+        phrases = ("root discover", "absolute", "confirm", "whole disk")
+        names = (
+            "obsidian-wiki-init",
+            "obsidian-wiki-ingest",
+            "obsidian-wiki-doctor",
+            "obsidian-wiki-maintain",
+            "obsidian-wiki-query",
+        )
+        for name in names:
+            content = (REPO_ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+            for phrase in phrases:
+                self.assertIn(phrase, content, name)
+
+
 if __name__ == "__main__":
     unittest.main()

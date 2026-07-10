@@ -3,6 +3,12 @@ name: obsidian-wiki-init
 description: Use this whenever the user wants to initialize, adopt, map, onboard, or set rules for an Obsidian vault as an LLM Wiki. Trigger on requests like "initialize Obsidian LLM Wiki", "adopt this vault", "create a knowledge center", "generate a knowledge map", "scan my vault", "guide me step by step", or "set Obsidian wiki rules". This skill creates structure, inventories existing content, generates an onboarding roadmap, and guides the user toward the first ingest batch. It must not move or delete existing user files.
 ---
 
+
+## First-Use Vault Setup
+
+Treat root configuration as background setup, not a JSON-file task for the user. If normal resolution has no root, run `python scripts/llm_wiki.py root discover --format json`. Show returned existing absolute paths as numbered candidates and ask the user to select one or provide another absolute Vault path. Resolve the selected path and state `vault_root`, `control_center`, and `wiki_root`. Only after the user confirms it should become the default, run `root configure --root <path> --activate --confirm`.
+
+Do not read note content or scan the whole disk during discovery. Continue the user's original request after setup succeeds.
 # Obsidian Wiki Init
 
 Initialize or adopt an Obsidian vault as an LLM Wiki, then guide the user into the first knowledge-building steps.

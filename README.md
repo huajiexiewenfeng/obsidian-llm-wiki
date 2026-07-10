@@ -139,6 +139,14 @@ then exactly one active user-configured Vault. The tools never scan the whole di
 
 ## Usage Examples
 
+### First-use Vault setup
+
+You do not need to create JSON configuration first. If no Wiki is configured,
+the Skill reads Obsidian recent-Vault metadata, shows existing absolute paths,
+and asks you to choose one. After you confirm, it saves that Vault as your
+default and continues the request. Discovery never reads notes or scans the
+whole disk.
+
 Use it naturally:
 
 ```text
