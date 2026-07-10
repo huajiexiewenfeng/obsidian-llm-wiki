@@ -125,3 +125,107 @@ Expected:
 - cites relevant wiki pages
 - states evidence gaps
 - suggests saving durable synthesis only when useful
+
+## Default Vault Discovery And Confirmation
+
+Use this prompt group to evaluate the user-facing setup flow. These are the
+primary acceptance tests for the new experience; the Python CLI tests are
+developer regression coverage for the implementation underneath.
+
+### First use: recent Vault candidates
+
+Start with no project root configuration, no environment root, and no active
+LLM Wiki user default. Then use one prompt from each Skill:
+
+```text
+Initialize an Obsidian LLM Wiki for me.
+```
+
+```text
+Ingest this confirmed article into my LLM Wiki.
+```
+
+```text
+Run Obsidian Wiki Doctor for me.
+```
+
+```text
+Based on my LLM Wiki, summarize my recent notes.
+```
+
+Expected:
+
+- the Skill does not ask the user to hand-write JSON configuration
+- it discovers recent Obsidian Vault candidates without reading note bodies
+- it displays existing candidates as numbered absolute paths, for example `1. D:\notes\Work Wiki`
+- it asks the user to select a number or provide another absolute path
+- it does not scan the whole disk
+- it does not write a default configuration before the user confirms
+
+### Confirmation and continuation
+
+After the Skill displays candidates, reply with a selected path or candidate
+number, then reply that it should become the default.
+
+```text
+Use 2. Set it as my default LLM Wiki, then continue the Doctor health check.
+```
+
+Expected:
+
+- the Skill states the resolved `vault_root`, `control_center`, and `wiki_root`
+- it saves the confirmed Vault as the user default in the background
+- it continues the original request instead of ending after configuration
+- Doctor remains read-only; Init, Ingest, and Maintain still follow their own confirmation rules before writes
+
+### Existing default: no unnecessary interruption
+
+In a new conversation, with a valid default Vault already saved, use:
+
+```text
+Run a health check on my wiki and give me the Chinese report.
+```
+
+Expected:
+
+- the Skill resolves the saved default without asking the user to select it again
+- it briefly states which absolute root it is using
+- it proceeds directly to the requested Doctor report
+
+### Explicit path overrides the default
+
+```text
+Use D:\another\Obsidian Vault for this one Doctor report. Do not change my default.
+```
+
+Expected:
+
+- the supplied absolute path is used for this request
+- the existing default Vault is not changed
+- the Skill reports an invalid root safely if the path is not an LLM Wiki
+
+### Switch default deliberately
+
+```text
+I want to use another Obsidian Vault from now on. Show available Vault paths and let me choose.
+```
+
+Expected:
+
+- the Skill shows recent absolute-path candidates again
+- it waits for explicit user confirmation before changing the default
+- the newly selected Vault becomes active
+- the previous default remains remembered but inactive
+
+### No candidates or inaccessible metadata
+
+```text
+I have not configured an LLM Wiki yet. Help me run Doctor.
+```
+
+Expected:
+
+- if no recent candidates are available, the Skill asks for one absolute Vault path
+- it does not invent a path or scan arbitrary folders
+- after the path is provided, it resolves and shows the three root paths before asking for confirmation
+- if the path has no control center, Init may offer initialization; Doctor, Query, Ingest, and Maintain do not silently create one
