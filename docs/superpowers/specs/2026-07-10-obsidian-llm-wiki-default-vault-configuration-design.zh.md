@@ -18,6 +18,8 @@
 -> configure 命令将其保存为默认 Vault
 ```
 
+当没有已配置根目录、也没有显式路径时，Skill 先读取 Obsidian 本地“最近 Vault”元数据，并展示其中已有的绝对路径供人选择。这只是候选发现，不属于根目录解析：最近使用的 Vault 未经人工确认绝不会被选中或保存。
+
 `root resolve` 始终只读。任何持久化命令都必须显式提供确认标记，因此 Skill 不能仅因探测过一个路径就改变用户默认 Vault。
 
 新确认的 Vault 会成为默认 Vault；原有 Vault 记录仍保留在用户配置中，但将被标记为非激活。用户配置在任意时刻最多只有一个激活 Vault。
@@ -27,6 +29,7 @@
 ### 本次包含
 
 - 显式保存用户默认 Vault 的 `root configure` 命令。
+- 只读读取 Obsidian 最近 Vault 元数据的 `root discover` 命令。
 - 复用现有 Vault、控制中心与 wiki 根目录分类器。
 - 用户级配置的读取、预览、原子更新和校验。
 - 所有写入都要求 `--confirm` 安全门。
@@ -36,13 +39,31 @@
 ### 本次不包含
 
 - 扫描整块磁盘、用户主目录或任意驱动器来寻找 Vault。
-- 读取 Obsidian 应用状态或最近打开的 Vault 元数据。
+- 在发现阶段读取笔记正文、附件或任何 Vault 内容。
 - 自动写入项目级 `.obsidian-llm-wiki.json`。
 - 项目级默认目标选择；项目配置仍是更高优先级的显式覆盖。
 - 跨机器或云端同步。
 - 除单文件原子替换外的多进程锁机制。
 
 ## 用户体验
+
+### 未配置根目录时的候选发现
+
+当显式根目录、项目配置、环境变量和用户默认都未命中时，Skill 调用只读发现命令。该命令只读取 Obsidian 本地记录最近打开 Vault 的应用元数据，对其中存在的绝对路径去重；不会遍历父目录或驱动器寻找更多候选。
+
+Skill 直接展示路径，不擅自生成名称：
+
+```text
+检测到近期使用过的 Obsidian Vault：
+
+1. D:\知识库\工作 Wiki
+2. C:\Users\admin\Documents\Obsidian Vault
+3. E:\Notes\学习笔记
+
+请选择默认 LLM Wiki（回复序号，或直接提供其他绝对路径）。
+```
+
+只有一个候选时，Skill 展示该绝对路径并询问是否设为默认。没有可用候选或应用元数据无法读取时，Skill 要求用户提供绝对 Vault 路径。发现过程不读取笔记、不检查 `.obsidian/`，也不写任何配置。
 
 ### 用户提供路径后的首次配置
 
@@ -86,6 +107,21 @@ python scripts/llm_wiki.py root configure --root "C:\Users\admin\Documents\Obsid
 命令不会自行在多个 Vault 之间做选择；默认 Vault 只能由用户确认的一条路径建立。
 
 ## CLI 契约
+
+### 候选发现命令
+
+```text
+python scripts/llm_wiki.py root discover [--format json|text]
+```
+
+`root discover` 始终只读，只返回受支持的 Obsidian 最近 Vault 元数据中存在的绝对 Vault 路径。JSON 结果包含 `candidates` 数组和元数据来源状态。元数据文件不存在、格式错误或平台不支持时，返回带说明状态的空候选列表；绝不因此扫描文件系统。
+
+退出码：
+
+| 结果 | 退出码 |
+|---|---:|
+| 已完成发现，包括空候选结果 | 0 |
+| 不支持的命令参数 | 2 |
 
 ### 新命令
 
@@ -163,13 +199,15 @@ python scripts/llm_wiki.py root configure \
 
 `root configure` 只改变第四级来源，永远不会覆盖项目配置或显式用户请求。
 
+候选发现有意不进入该优先级链。它只在优先级链无法解析根目录时，帮助人选择一个路径。
+
 ## Skill 规则
 
 五个 Obsidian Wiki Skill 都遵循相同行为：
 
 1. 先只读解析显式路径或已有配置的根目录。
-2. 若尚未配置根目录，向用户索取 Vault 路径，而不是扫描磁盘。
-3. 展示候选规范化后的 `vault_root`、`control_center`、`wiki_root`。
+2. 若尚未配置根目录，运行 `root discover` 并展示绝对路径候选；没有候选时再向用户索取 Vault 路径。
+3. 展示用户选中候选规范化后的 `vault_root`、`control_center`、`wiki_root`。
 4. 仅在用户明确确认“设为默认”后持久化。
 5. 读取或写入 wiki 内容前说明正在使用的根目录。
 
@@ -195,6 +233,8 @@ python scripts/llm_wiki.py root configure \
 - 更新时保留未知但有效的 JSON 字段；
 - 通过可注入文件系统接口验证原子写入失败行为；
 - Windows 与 Linux 用户配置路径；
+- 最近 Vault 发现只返回存在的绝对路径，不读取 Vault 内容，也不扫描目录；
+- 最近 Vault 元数据为空、格式错误或平台不支持时安全返回空候选；
 - Skill 和 README 都说明人工确认与禁止全盘扫描。
 
 ## 验收标准

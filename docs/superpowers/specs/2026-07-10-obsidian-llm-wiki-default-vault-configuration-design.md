@@ -22,6 +22,11 @@ User provides a candidate Vault path
 -> configure command persists it as the default Vault
 ```
 
+When no configured root or explicit path is available, the Skill first reads
+Obsidian's local recent-Vault metadata and presents its existing absolute paths
+for the human to select. This is candidate discovery, not root resolution: a
+recent Vault is never selected or persisted without human confirmation.
+
 `root resolve` stays read-only. A persistence command requires an explicit
 confirmation flag, so a Skill cannot change the user's default merely by
 probing a path.
@@ -35,6 +40,7 @@ active user Vault.
 ### In scope
 
 - `root configure` as an explicit user-default persistence command.
+- Read-only `root discover` for Obsidian recent-Vault metadata.
 - Reuse of the existing Vault/control-center/wiki-root classifier.
 - User-level configuration read, preview, atomic update, and validation.
 - A `--confirm` safety gate for any write.
@@ -46,7 +52,7 @@ active user Vault.
 ### Out of scope
 
 - Scanning the whole disk, home directory, or arbitrary drives for Vaults.
-- Reading Obsidian application state or its recent-vault metadata.
+- Reading note bodies, attachments, or any Vault content during discovery.
 - Writing project `.obsidian-llm-wiki.json` automatically.
 - Per-project default selection; project configuration remains an explicit
   higher-priority override.
@@ -54,6 +60,31 @@ active user Vault.
 - Concurrent multi-process locking beyond atomic single-file replacement.
 
 ## User Experience
+
+### Candidate discovery when no root is configured
+
+If explicit root, project configuration, environment, and user default are all
+absent, the Skill calls a read-only discovery command. The command reads only
+the local Obsidian application metadata that lists recently opened Vaults. It
+deduplicates existing absolute paths and never walks parent directories or
+drives looking for more.
+
+The Skill shows the paths directly, without inventing display names:
+
+```text
+Detected recently used Obsidian Vaults:
+
+1. D:\knowledge\Work Wiki
+2. C:\Users\admin\Documents\Obsidian Vault
+3. E:\Notes\Learning
+
+Choose the default LLM Wiki by number, or provide another absolute path.
+```
+
+With exactly one candidate, the Skill shows that absolute path and asks whether
+to use it as the default. With no usable candidate or unreadable application
+metadata, the Skill asks the user to provide an absolute Vault path. Discovery
+does not read any note, inspect `.obsidian/`, or write any configuration.
 
 ### First-time setup from a supplied path
 
@@ -106,6 +137,25 @@ The command never chooses between multiple Vaults by itself. A new default is
 created only from the one path the user confirmed.
 
 ## CLI Contract
+
+### Candidate-discovery command
+
+```text
+python scripts/llm_wiki.py root discover [--format json|text]
+```
+
+`root discover` is read-only. It returns only existing absolute Vault paths
+listed in supported Obsidian recent-Vault metadata. JSON results include a
+`candidates` array and a metadata-source status. An unavailable, malformed, or
+unsupported metadata file produces an empty candidate list with an explanatory
+status; it does not cause a filesystem scan.
+
+Exit codes:
+
+| Result | Exit code |
+|---|---:|
+| Discovery ran, including an empty candidate result | 0 |
+| Unsupported command arguments | 2 |
 
 ### New command
 
@@ -197,14 +247,17 @@ explicit --root
 `root configure` only changes the fourth source. It never overrides a project
 configuration or an explicit user request.
 
+Candidate discovery is deliberately outside this priority chain. It is used
+only to help a human select a path when the chain cannot resolve a root.
+
 ## Skill Rules
 
 The five Obsidian Wiki Skills use the same behavior:
 
 1. Resolve an explicit path or existing configured root without writing.
-2. If no root is configured, ask the user for a Vault path instead of searching
-   the disk.
-3. Display the candidate's normalized `vault_root`, `control_center`, and
+2. If no root is configured, run `root discover` and show its absolute-path
+   candidates. If it returns none, ask the user for a Vault path.
+3. Display the selected candidate's normalized `vault_root`, `control_center`, and
    `wiki_root`.
 4. Persist it only after the user explicitly confirms it should become the
    default.
@@ -238,6 +291,10 @@ Unit and CLI tests cover:
 - preserving unknown valid JSON keys through an update;
 - atomic-write failure behavior through an injected filesystem seam;
 - Windows and Linux user-configuration paths;
+- recent-Vault discovery returning existing absolute paths without reading Vault
+  contents or scanning directories;
+- empty, malformed, and unsupported recent-Vault metadata returning safe empty
+  candidate results;
 - Skill and README instructions documenting human confirmation and no broad
   filesystem search.
 
