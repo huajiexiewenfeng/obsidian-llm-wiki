@@ -24,11 +24,23 @@ def make_control_center(base: Path) -> Path:
     return control
 
 
-def run_doctor(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def run_doctor(
+    *args: str,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
     merged_env = os.environ.copy()
     if env:
         merged_env.update(env)
-    return subprocess.run([sys.executable, str(SCRIPT), *args], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=merged_env, check=False)
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        cwd=str(cwd) if cwd else None,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=merged_env,
+        check=False,
+    )
 
 
 class RootResolutionTests(unittest.TestCase):
@@ -55,6 +67,26 @@ class RootResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             control = make_control_center(Path(tmp))
             result = run_doctor("score", "--format", "json", env={"OBSIDIAN_LLM_WIKI_ROOT": str(control)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["root"]["control_center"], str(control.resolve()))
+
+    def test_project_config_is_used_when_no_root_argument_is_given(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            control = make_control_center(base / "vault")
+            vault = control.parent
+            project = base / "project"
+            project.mkdir()
+            write(project / ".obsidian-llm-wiki.json", json.dumps({
+                "schema_version": 1,
+                "vault_root": str(vault),
+                "control_center": "00-知识库中控",
+                "active": True,
+            }))
+
+            result = run_doctor("score", "--format", "json", cwd=project)
+
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
             self.assertEqual(payload["root"]["control_center"], str(control.resolve()))

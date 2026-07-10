@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "llm_wiki.py"
+OLD_DOCTOR = REPO_ROOT / "scripts" / "obsidian_wiki_doctor.py"
 
 
 def write(path: Path, text: str) -> Path:
@@ -65,6 +66,23 @@ class RootCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 1)
             self.assertEqual(json.loads(result.stdout)["error"]["check"], "missing-config")
+
+
+class DoctorCompatibilityTests(unittest.TestCase):
+    def test_new_and_old_doctor_json_are_equivalent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = make_vault(Path(tmp))
+            old = subprocess.run(
+                [sys.executable, str(OLD_DOCTOR), "report", "--root", str(vault), "--format", "json"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            new = run_cli("doctor", "report", "--root", str(vault), "--format", "json")
+
+            self.assertEqual(new.returncode, old.returncode)
+            self.assertEqual(json.loads(new.stdout), json.loads(old.stdout))
 
 
 if __name__ == "__main__":

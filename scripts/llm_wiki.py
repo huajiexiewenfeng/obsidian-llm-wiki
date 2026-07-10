@@ -10,6 +10,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from llm_wiki_core.root import ResolvedRoot, resolve_root
+import obsidian_wiki_doctor
 
 
 def root_to_dict(root: ResolvedRoot) -> dict[str, object]:
@@ -74,7 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ["doctor"]:
+        return obsidian_wiki_doctor.main(arguments[1:])
+    args = build_parser().parse_args(arguments)
     return args.handler(args)
 
 

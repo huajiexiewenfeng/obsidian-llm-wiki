@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-DEFAULT_CONTROL_CENTER = Path(r"C:\Users\admin\Documents\Obsidian Vault\00-知识库中控")
-ENV_ROOT = "OBSIDIAN_LLM_WIKI_ROOT"
+SCRIPTS_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from llm_wiki_core.root import ResolvedRoot, RootIssue, resolve_root
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 WIKILINK_RE = re.compile(r"(?<!!)\[\[([^\]]+)\]\]")
@@ -38,13 +39,14 @@ class Finding:
     hint: str | None = None
 
 
-@dataclass(frozen=True)
-class ResolvedRoot:
-    control_center: Path | None
-    wiki_root: Path | None
-    input_root: Path | None
-    source: str
-    error: Finding | None = None
+def finding_from_root_issue(issue: RootIssue) -> Finding:
+    return Finding(
+        check=issue.check,
+        severity=issue.severity,
+        path=issue.path,
+        message=issue.message,
+        hint=issue.hint,
+    )
 
 
 @dataclass(frozen=True)
@@ -77,94 +79,6 @@ class ScoreReport:
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8-sig")
-
-
-def has_wiki_marker(path: Path) -> bool:
-    return (path / "index.md").is_file() or (path / "log.md").is_file()
-
-
-def is_control_center(path: Path) -> bool:
-    if not path.is_dir():
-        return False
-    wiki_root = path / "wiki"
-    return wiki_root.is_dir() or has_wiki_marker(wiki_root)
-
-
-def is_direct_wiki_root(path: Path) -> bool:
-    return path.is_dir() and has_wiki_marker(path)
-
-
-def invalid_root(path: Path, source: str) -> ResolvedRoot:
-    return ResolvedRoot(
-        control_center=None,
-        wiki_root=None,
-        input_root=path,
-        source=source,
-        error=Finding(
-            check="invalid-root",
-            severity="ERROR",
-            path=str(path),
-            message=f"{source} root does not point to an Obsidian LLM Wiki control center or wiki root.",
-            hint=f"Pass a control-center directory, a wiki directory, or set {ENV_ROOT}.",
-        ),
-    )
-
-
-def resolve_explicit_root(root_value: str, source: str = "argument") -> ResolvedRoot:
-    input_root = Path(root_value).expanduser()
-    try:
-        resolved = input_root.resolve()
-    except OSError:
-        return invalid_root(input_root, source)
-
-    if is_control_center(resolved):
-        return ResolvedRoot(
-            control_center=resolved,
-            wiki_root=(resolved / "wiki").resolve(),
-            input_root=resolved,
-            source=source,
-        )
-    if is_direct_wiki_root(resolved):
-        control_center = resolved.parent if resolved.name == "wiki" else None
-        return ResolvedRoot(
-            control_center=control_center.resolve() if control_center else None,
-            wiki_root=resolved,
-            input_root=resolved,
-            source=source,
-        )
-    return invalid_root(resolved, source)
-
-
-def resolve_root(root_arg: str | None) -> ResolvedRoot:
-    if root_arg:
-        return resolve_explicit_root(root_arg, "argument")
-
-    env_root = os.environ.get(ENV_ROOT)
-    if env_root:
-        return resolve_explicit_root(env_root, "environment")
-
-    if is_control_center(DEFAULT_CONTROL_CENTER):
-        resolved_default = DEFAULT_CONTROL_CENTER.resolve()
-        return ResolvedRoot(
-            control_center=resolved_default,
-            wiki_root=(resolved_default / "wiki").resolve(),
-            input_root=resolved_default,
-            source="default",
-        )
-
-    return ResolvedRoot(
-        control_center=None,
-        wiki_root=None,
-        input_root=DEFAULT_CONTROL_CENTER,
-        source="default",
-        error=Finding(
-            check="missing-control-center",
-            severity="ERROR",
-            path=str(DEFAULT_CONTROL_CENTER),
-            message="Default Obsidian LLM Wiki control center was not found.",
-            hint=f"Pass --root or set {ENV_ROOT}.",
-        ),
-    )
 
 
 def canonical_table_header(header: str) -> str:
@@ -422,7 +336,7 @@ def build_state(root: ResolvedRoot) -> WikiState:
 
 def run_checks(root: ResolvedRoot, state: WikiState) -> list[Finding]:
     if root.error is not None:
-        return [root.error]
+        return [finding_from_root_issue(root.error)]
 
     findings: list[Finding] = []
     findings.extend(check_required_structure(root, state))
@@ -440,7 +354,7 @@ def root_to_dict(root: ResolvedRoot) -> dict[str, object]:
         "source": root.source,
     }
     if root.error is not None:
-        payload["error"] = safe_finding_dict(root.error)
+        payload["error"] = safe_finding_dict(finding_from_root_issue(root.error))
     return payload
 
 def score_level(score: int) -> str:
