@@ -75,7 +75,7 @@ The Skill shows the paths directly, without inventing display names:
 Detected recently used Obsidian Vaults:
 
 1. D:\knowledge\Work Wiki
-2. C:\Users\admin\Documents\Obsidian Vault
+2. C:\Users\<user>\Documents\Obsidian Vault
 3. E:\Notes\Learning
 
 Choose the default LLM Wiki by number, or provide another absolute path.
@@ -91,13 +91,13 @@ does not read any note, inspect `.obsidian/`, or write any configuration.
 For a user-provided path such as:
 
 ```text
-C:\Users\admin\Documents\Obsidian Vault
+C:\Users\<user>\Documents\Obsidian Vault
 ```
 
 the Skill runs the equivalent of:
 
 ```text
-python scripts/llm_wiki.py root resolve --root "C:\Users\admin\Documents\Obsidian Vault" --format json
+python scripts/llm_wiki.py root resolve --root "C:\Users\<user>\Documents\Obsidian Vault" --format json
 ```
 
 The resolver accepts a Vault root, control center, or direct `wiki/` root. It
@@ -107,7 +107,7 @@ The Skill displays those three values and asks the user to confirm.
 After confirmation, the Skill runs:
 
 ```text
-python scripts/llm_wiki.py root configure --root "C:\Users\admin\Documents\Obsidian Vault" --activate --confirm --format json
+python scripts/llm_wiki.py root configure --root "C:\Users\<user>\Documents\Obsidian Vault" --activate --confirm --format json
 ```
 
 The command records the normalized Vault as the user default. Subsequent root

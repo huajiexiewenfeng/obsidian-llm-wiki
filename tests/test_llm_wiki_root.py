@@ -8,7 +8,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from llm_wiki_core.root import default_user_config_path, resolve_explicit_root, resolve_root
+from llm_wiki_core.root import (
+    default_obsidian_metadata_path,
+    default_user_config_path,
+    discover_recent_vaults,
+    resolve_explicit_root,
+    resolve_root,
+)
 
 
 def write(path: Path, text: str) -> Path:
@@ -245,6 +251,45 @@ class FallbackResolutionTests(unittest.TestCase):
 
             self.assertEqual(result.error.check, "missing-config")
             self.assertIsNone(result.wiki_root)
+
+
+class RecentVaultDiscoveryTests(unittest.TestCase):
+    def test_discovers_existing_absolute_paths_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            first = (base / "first").resolve()
+            second = (base / "second").resolve()
+            first.mkdir()
+            second.mkdir()
+            metadata = write_json(base / "obsidian.json", {
+                "vaults": {
+                    "one": {"path": str(first), "ts": 2, "open": True},
+                    "two": {"path": str(second), "ts": 1, "open": False},
+                    "duplicate": {"path": str(first), "ts": 0, "open": False},
+                    "relative": {"path": "relative/path", "ts": 0, "open": False},
+                },
+            })
+
+            result = discover_recent_vaults(metadata)
+
+            self.assertEqual(result.status, "ok")
+            self.assertEqual(result.candidates, (first, second))
+
+    def test_missing_and_invalid_metadata_are_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            self.assertEqual(discover_recent_vaults(base / "missing.json").candidates, ())
+            malformed = write(base / "bad.json", "{invalid-json")
+            self.assertEqual(discover_recent_vaults(malformed).status, "invalid-metadata")
+
+    def test_windows_metadata_path_uses_appdata(self):
+        result = default_obsidian_metadata_path(
+            platform_name="win32",
+            environ={"APPDATA": "C:/Users/alice/AppData/Roaming"},
+            home=Path("C:/Users/alice"),
+        )
+
+        self.assertEqual(result, Path("C:/Users/alice/AppData/Roaming/obsidian/obsidian.json"))
 
 
 class RepositoryContractTests(unittest.TestCase):

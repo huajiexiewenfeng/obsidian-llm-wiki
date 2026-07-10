@@ -57,7 +57,7 @@ Skill 直接展示路径，不擅自生成名称：
 检测到近期使用过的 Obsidian Vault：
 
 1. D:\知识库\工作 Wiki
-2. C:\Users\admin\Documents\Obsidian Vault
+2. C:\Users\<user>\Documents\Obsidian Vault
 3. E:\Notes\学习笔记
 
 请选择默认 LLM Wiki（回复序号，或直接提供其他绝对路径）。
@@ -70,13 +70,13 @@ Skill 直接展示路径，不擅自生成名称：
 例如用户提供：
 
 ```text
-C:\Users\admin\Documents\Obsidian Vault
+C:\Users\<user>\Documents\Obsidian Vault
 ```
 
 Skill 先执行等价的只读命令：
 
 ```text
-python scripts/llm_wiki.py root resolve --root "C:\Users\admin\Documents\Obsidian Vault" --format json
+python scripts/llm_wiki.py root resolve --root "C:\Users\<user>\Documents\Obsidian Vault" --format json
 ```
 
 解析器可接受 Vault 根目录、控制中心目录或直接的 `wiki/` 根目录，并将候选规范化为 `vault_root`、`control_center`、`wiki_root`。Skill 展示这三个值并等待用户确认。
@@ -84,7 +84,7 @@ python scripts/llm_wiki.py root resolve --root "C:\Users\admin\Documents\Obsidia
 确认后，Skill 执行：
 
 ```text
-python scripts/llm_wiki.py root configure --root "C:\Users\admin\Documents\Obsidian Vault" --activate --confirm --format json
+python scripts/llm_wiki.py root configure --root "C:\Users\<user>\Documents\Obsidian Vault" --activate --confirm --format json
 ```
 
 命令将规范化后的 Vault 写入用户默认配置。之后只有在显式路径、项目配置和环境变量都未命中时，根目录解析才使用该默认 Vault。

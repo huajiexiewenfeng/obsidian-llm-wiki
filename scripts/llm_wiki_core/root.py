@@ -32,6 +32,14 @@ class ResolvedRoot:
     vault_root: Path | None = None
 
 
+@dataclass(frozen=True)
+class DiscoveryResult:
+    candidates: tuple[Path, ...]
+    source: str
+    status: str
+    message: str | None = None
+
+
 def has_wiki_marker(path: Path) -> bool:
     return (path / "index.md").is_file() or (path / "log.md").is_file()
 
@@ -216,6 +224,49 @@ def default_user_config_path(
     if platform_value == "darwin":
         return home_path / "Library" / "Application Support" / "obsidian-llm-wiki" / "config.json"
     return home_path / ".config" / "obsidian-llm-wiki" / "config.json"
+
+
+def default_obsidian_metadata_path(
+    platform_name: str | None = None,
+    environ: Mapping[str, str] | None = None,
+    home: Path | None = None,
+) -> Path:
+    platform_value = sys.platform if platform_name is None else platform_name
+    environment = os.environ if environ is None else environ
+    home_path = Path.home() if home is None else home
+    if platform_value.startswith("win"):
+        base = Path(environment.get("APPDATA", home_path / "AppData" / "Roaming"))
+        return base / "obsidian" / "obsidian.json"
+    if platform_value == "darwin":
+        return home_path / "Library" / "Application Support" / "obsidian" / "obsidian.json"
+    return home_path / ".config" / "obsidian" / "obsidian.json"
+
+
+def discover_recent_vaults(metadata_path: Path) -> DiscoveryResult:
+    try:
+        payload = load_json_object(metadata_path)
+    except FileNotFoundError:
+        return DiscoveryResult((), "obsidian-recent", "missing-metadata")
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        return DiscoveryResult((), "obsidian-recent", "invalid-metadata", str(exc))
+
+    vaults = payload.get("vaults")
+    if not isinstance(vaults, dict):
+        return DiscoveryResult((), "obsidian-recent", "unsupported-metadata")
+
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for record in vaults.values():
+        if not isinstance(record, dict) or not isinstance(record.get("path"), str):
+            continue
+        candidate = Path(record["path"]).expanduser()
+        if not candidate.is_absolute() or not candidate.is_dir():
+            continue
+        resolved = candidate.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            candidates.append(resolved)
+    return DiscoveryResult(tuple(candidates), "obsidian-recent", "ok")
 
 
 def resolve_user_config(path: Path) -> ResolvedRoot:
