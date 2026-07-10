@@ -1,5 +1,7 @@
 # Obsidian LLM Wiki
 
+[![test](https://github.com/huajiexiewenfeng/obsidian-llm-wiki/actions/workflows/test.yml/badge.svg)](https://github.com/huajiexiewenfeng/obsidian-llm-wiki/actions/workflows/test.yml)
+
 AI-assisted Obsidian LLM Wiki skills for organizing existing vaults, ingesting external documents, diagnosing wiki structure, applying approved repairs, and querying a personal knowledge base.
 
 English | [简体中文](./README.zh.md)

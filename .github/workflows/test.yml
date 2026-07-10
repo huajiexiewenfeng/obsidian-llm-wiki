@@ -1,0 +1,30 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run unit tests
+        run: python -m unittest discover tests -v
+      - name: Resolve sample Vault through canonical CLI
+        shell: pwsh
+        run: |
+          $vault = Join-Path $env:RUNNER_TEMP "Sample Vault"
+          New-Item -ItemType Directory -Force -Path (Join-Path $vault "00-知识库中控/wiki") | Out-Null
+          Set-Content -Encoding utf8 -Path (Join-Path $vault "00-知识库中控/wiki/index.md") -Value "# Index"
+          Set-Content -Encoding utf8 -Path (Join-Path $vault "00-知识库中控/wiki/log.md") -Value "# Log"
+          python scripts/llm_wiki.py root resolve --root $vault --format json
