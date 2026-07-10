@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -196,4 +197,58 @@ def resolve_root(
     if env_root:
         return resolve_explicit_root(env_root, source="environment")
 
-    return config_issue("missing-config", current, "No Obsidian LLM Wiki root configuration was found.", "resolver")
+    config_path = Path(user_config_path) if user_config_path is not None else default_user_config_path(environ=environment)
+    return resolve_user_config(config_path)
+
+
+def default_user_config_path(
+    platform_name: str | None = None,
+    environ: Mapping[str, str] | None = None,
+    home: Path | None = None,
+) -> Path:
+    platform_value = sys.platform if platform_name is None else platform_name
+    environment = os.environ if environ is None else environ
+    home_path = Path.home() if home is None else home
+    if platform_value.startswith("win"):
+        appdata = environment.get("APPDATA")
+        base = Path(appdata) if appdata else home_path / "AppData" / "Roaming"
+        return base / "obsidian-llm-wiki" / "config.json"
+    if platform_value == "darwin":
+        return home_path / "Library" / "Application Support" / "obsidian-llm-wiki" / "config.json"
+    return home_path / ".config" / "obsidian-llm-wiki" / "config.json"
+
+
+def resolve_user_config(path: Path) -> ResolvedRoot:
+    try:
+        payload = load_json_object(path)
+    except FileNotFoundError:
+        return config_issue("missing-config", path, "User configuration was not found.", "user-config")
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        return config_issue("invalid-config", path, str(exc), "user-config")
+
+    if payload.get("schema_version") != 1 or not isinstance(payload.get("vaults"), list):
+        return config_issue(
+            "invalid-config",
+            path,
+            "User configuration requires schema_version 1 and a vaults array.",
+            "user-config",
+        )
+    active = [item for item in payload["vaults"] if isinstance(item, dict) and item.get("active") is True]
+    if not active:
+        return config_issue("missing-config", path, "No active Vault is configured.", "user-config")
+    if len(active) > 1:
+        candidates = tuple(
+            str(Path(item["vault_root"]).expanduser())
+            for item in active
+            if isinstance(item.get("vault_root"), str)
+        )
+        return config_issue(
+            "multiple-roots",
+            path,
+            "More than one active Vault is configured.",
+            "user-config",
+            candidates=candidates,
+        )
+    record = dict(active[0])
+    record["schema_version"] = payload["schema_version"]
+    return resolve_config_record(record, path, "user-config")

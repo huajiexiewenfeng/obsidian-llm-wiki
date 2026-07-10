@@ -8,7 +8,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from llm_wiki_core.root import resolve_explicit_root, resolve_root
+from llm_wiki_core.root import default_user_config_path, resolve_explicit_root, resolve_root
 
 
 def write(path: Path, text: str) -> Path:
@@ -164,6 +164,87 @@ class ProjectConfigTests(unittest.TestCase):
             result = resolve_root(cwd=project, environ={}, user_config_path=base / "missing.json")
 
             self.assertEqual(result.error.check, "invalid-config")
+
+
+class FallbackResolutionTests(unittest.TestCase):
+    def test_default_user_config_path_on_windows(self):
+        result = default_user_config_path(
+            platform_name="win32",
+            environ={"APPDATA": "C:/Users/alice/AppData/Roaming"},
+            home=Path("C:/Users/alice"),
+        )
+
+        self.assertEqual(result, Path("C:/Users/alice/AppData/Roaming/obsidian-llm-wiki/config.json"))
+
+    def test_default_user_config_path_on_linux(self):
+        result = default_user_config_path(
+            platform_name="linux",
+            environ={},
+            home=Path("/home/alice"),
+        )
+
+        self.assertEqual(result, Path("/home/alice/.config/obsidian-llm-wiki/config.json"))
+
+    def test_environment_is_used_without_project_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault, control, _ = make_vault(base)
+
+            result = resolve_root(
+                cwd=base / "work",
+                environ={"OBSIDIAN_LLM_WIKI_ROOT": str(vault)},
+                user_config_path=base / "missing.json",
+            )
+
+            self.assertIsNone(result.error)
+            self.assertEqual(result.source, "environment")
+            self.assertEqual(result.control_center, control.resolve())
+
+    def test_exactly_one_active_user_vault_is_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault, control, _ = make_vault(base / "vaults")
+            config = write_json(base / "config.json", {
+                "schema_version": 1,
+                "vaults": [{
+                    "vault_root": str(vault),
+                    "control_center": "00-知识库中控",
+                    "active": True,
+                }],
+            })
+
+            result = resolve_root(cwd=base / "work", environ={}, user_config_path=config)
+
+            self.assertIsNone(result.error)
+            self.assertEqual(result.source, "user-config")
+            self.assertEqual(result.control_center, control.resolve())
+
+    def test_multiple_active_user_vaults_are_not_auto_selected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            first, _, _ = make_vault(base / "first")
+            second, _, _ = make_vault(base / "second")
+            config = write_json(base / "config.json", {
+                "schema_version": 1,
+                "vaults": [
+                    {"vault_root": str(first), "control_center": "00-知识库中控", "active": True},
+                    {"vault_root": str(second), "control_center": "00-知识库中控", "active": True},
+                ],
+            })
+
+            result = resolve_root(cwd=base / "work", environ={}, user_config_path=config)
+
+            self.assertEqual(result.error.check, "multiple-roots")
+            self.assertEqual(len(result.error.candidates), 2)
+
+    def test_missing_configuration_is_safe_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+
+            result = resolve_root(cwd=base, environ={}, user_config_path=base / "missing.json")
+
+            self.assertEqual(result.error.check, "missing-config")
+            self.assertIsNone(result.wiki_root)
 
 
 if __name__ == "__main__":
