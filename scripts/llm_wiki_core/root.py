@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -99,5 +102,98 @@ def resolve_explicit_root(
     return invalid_root(resolved, source)
 
 
-def resolve_root(*args: object, **kwargs: object) -> ResolvedRoot:
-    raise NotImplementedError("configuration resolution is added in Task 2")
+def config_issue(
+    check: str,
+    path: Path,
+    message: str,
+    source: str,
+    candidates: tuple[str, ...] = (),
+) -> ResolvedRoot:
+    return ResolvedRoot(
+        control_center=None,
+        wiki_root=None,
+        input_root=path,
+        source=source,
+        error=RootIssue(
+            check=check,
+            path=str(path),
+            message=message,
+            hint="Fix or remove the invalid configuration before continuing.",
+            candidates=candidates,
+        ),
+    )
+
+
+def find_project_config(cwd: Path) -> Path | None:
+    current = cwd.expanduser().resolve()
+    for candidate in (current, *current.parents):
+        config = candidate / PROJECT_CONFIG_NAME
+        if config.is_file():
+            return config
+    return None
+
+
+def load_json_object(path: Path) -> dict[str, object]:
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(payload, dict):
+        raise ValueError("configuration root must be a JSON object")
+    return payload
+
+
+def resolve_config_record(
+    record: Mapping[str, object],
+    config_path: Path,
+    source: str,
+) -> ResolvedRoot:
+    if record.get("schema_version") != 1:
+        return config_issue("invalid-config", config_path, "schema_version must be 1", source)
+    if record.get("active") is not True:
+        return config_issue("disabled-config", config_path, "configuration is not active", source)
+
+    vault_value = record.get("vault_root")
+    control_value = record.get("control_center", DEFAULT_CONTROL_CENTER_NAME)
+    if not isinstance(vault_value, str) or not vault_value.strip():
+        return config_issue("invalid-config", config_path, "vault_root must be a non-empty string", source)
+    control_path = Path(control_value) if isinstance(control_value, str) else None
+    if (
+        control_path is None
+        or not control_value.strip()
+        or control_path.is_absolute()
+        or ".." in control_path.parts
+    ):
+        return config_issue(
+            "invalid-config",
+            config_path,
+            "control_center must be a non-empty relative path contained by the Vault",
+            source,
+        )
+
+    vault_path = Path(vault_value).expanduser()
+    if not vault_path.is_absolute():
+        vault_path = config_path.parent / vault_path
+    return resolve_explicit_root(str(vault_path), source=source, control_center_name=control_value)
+
+
+def resolve_root(
+    root_arg: str | None = None,
+    cwd: str | Path | None = None,
+    environ: Mapping[str, str] | None = None,
+    user_config_path: str | Path | None = None,
+) -> ResolvedRoot:
+    if root_arg:
+        return resolve_explicit_root(root_arg, source="argument")
+
+    current = Path(cwd) if cwd is not None else Path.cwd()
+    project_config = find_project_config(current)
+    if project_config is not None:
+        try:
+            return resolve_config_record(load_json_object(project_config), project_config, "project-config")
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            return config_issue("invalid-config", project_config, str(exc), "project-config")
+
+    environment = os.environ if environ is None else environ
+    env_root = environment.get(ENV_ROOT)
+    if env_root:
+        return resolve_explicit_root(env_root, source="environment")
+
+    return config_issue("missing-config", current, "No Obsidian LLM Wiki root configuration was found.", "resolver")
