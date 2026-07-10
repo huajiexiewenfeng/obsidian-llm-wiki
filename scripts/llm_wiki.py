@@ -9,7 +9,16 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from llm_wiki_core.root import ResolvedRoot, resolve_root
+from llm_wiki_core.root import (
+    ConfigureResult,
+    DiscoveryResult,
+    ResolvedRoot,
+    configure_user_default,
+    default_obsidian_metadata_path,
+    default_user_config_path,
+    discover_recent_vaults,
+    resolve_root,
+)
 import obsidian_wiki_doctor
 
 
@@ -60,6 +69,47 @@ def run_root_resolve(args: argparse.Namespace) -> int:
     return root_exit_code(root)
 
 
+def run_root_discover(args: argparse.Namespace) -> int:
+    result: DiscoveryResult = discover_recent_vaults(default_obsidian_metadata_path())
+    payload = {
+        "candidates": [str(path) for path in result.candidates],
+        "source": result.source,
+        "status": result.status,
+        "message": result.message,
+    }
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        for index, path in enumerate(payload["candidates"], start=1):
+            print(f"{index}. {path}")
+        if not payload["candidates"]:
+            print(f"No recent Vault candidates ({result.status}).")
+    return 0
+
+
+def run_root_configure(args: argparse.Namespace) -> int:
+    result: ConfigureResult = configure_user_default(
+        args.root,
+        Path(args.user_config) if args.user_config else default_user_config_path(),
+        args.confirm,
+    )
+    payload = root_to_dict(result.root)
+    payload.update({
+        "user_config": str(result.config_path),
+        "confirmation_required": result.confirmation_required,
+        "configured": result.configured,
+    })
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"vault_root: {payload['vault_root']}")
+        print(f"user_config: {payload['user_config']}")
+        print(f"configured: {payload['configured']}")
+    if result.root.error is not None:
+        return 2
+    return 1 if result.confirmation_required else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="llm-wiki")
     groups = parser.add_subparsers(dest="group", required=True)
@@ -71,6 +121,16 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--user-config")
     resolve.add_argument("--format", choices=("text", "json"), default="json")
     resolve.set_defaults(handler=run_root_resolve)
+    discover = root_commands.add_parser("discover")
+    discover.add_argument("--format", choices=("text", "json"), default="json")
+    discover.set_defaults(handler=run_root_discover)
+    configure = root_commands.add_parser("configure")
+    configure.add_argument("--root", required=True)
+    configure.add_argument("--activate", action="store_true", required=True)
+    configure.add_argument("--confirm", action="store_true")
+    configure.add_argument("--user-config")
+    configure.add_argument("--format", choices=("text", "json"), default="json")
+    configure.set_defaults(handler=run_root_configure)
     return parser
 
 

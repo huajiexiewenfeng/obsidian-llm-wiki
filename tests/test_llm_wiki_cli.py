@@ -85,5 +85,44 @@ class DoctorCompatibilityTests(unittest.TestCase):
             self.assertEqual(json.loads(new.stdout), json.loads(old.stdout))
 
 
+class DefaultVaultCliTests(unittest.TestCase):
+    def test_discover_returns_recent_absolute_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault = make_vault(base)
+            appdata = base / "appdata"
+            write(appdata / "obsidian" / "obsidian.json", json.dumps({
+                "vaults": {"recent": {"path": str(vault), "ts": 1, "open": True}},
+            }))
+            environment = os.environ.copy()
+            environment.update({"APPDATA": str(appdata), "HOME": str(base)})
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "root", "discover", "--format", "json"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=environment,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["candidates"], [str(vault.resolve())])
+
+    def test_configure_without_confirm_does_not_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault = make_vault(base)
+            config = base / "config.json"
+
+            result = run_cli(
+                "root", "configure", "--root", str(vault), "--activate",
+                "--user-config", str(config), "--format", "json",
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertTrue(json.loads(result.stdout)["confirmation_required"])
+            self.assertFalse(config.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
