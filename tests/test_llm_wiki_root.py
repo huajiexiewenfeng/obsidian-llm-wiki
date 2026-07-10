@@ -247,5 +247,27 @@ class FallbackResolutionTests(unittest.TestCase):
             self.assertIsNone(result.wiki_root)
 
 
+class RepositoryContractTests(unittest.TestCase):
+    def test_personal_default_path_is_absent(self):
+        forbidden = "C:" + "\\Users\\admin\\Documents\\Obsidian Vault"
+        roots = [
+            REPO_ROOT / "scripts",
+            REPO_ROOT / "skills",
+            REPO_ROOT / "README.md",
+            REPO_ROOT / "README.zh.md",
+            REPO_ROOT / "docs",
+            REPO_ROOT / "tests" / "prompts.md",
+        ]
+        matches: list[str] = []
+        for root in roots:
+            files = [root] if root.is_file() else [path for path in root.rglob("*") if path.is_file()]
+            for path in files:
+                if path.suffix.lower() not in {".py", ".md"}:
+                    continue
+                if forbidden in path.read_text(encoding="utf-8-sig"):
+                    matches.append(str(path.relative_to(REPO_ROOT)))
+        self.assertEqual(matches, [])
+
+
 if __name__ == "__main__":
     unittest.main()

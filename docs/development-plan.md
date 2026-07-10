@@ -1,5 +1,15 @@
 # Development Plan
 
+## v0.2 Phase 1: Shared Root Resolver
+
+Acceptance:
+
+- no personal default Vault path
+- one shared Root Resolver
+- project config -> environment -> user config precedence after explicit root
+- old and new Doctor commands produce equivalent JSON and exit codes
+- Ubuntu and Windows tests pass on Python 3.10+
+
 ## Phase 0: Repository Skeleton
 
 Deliver:

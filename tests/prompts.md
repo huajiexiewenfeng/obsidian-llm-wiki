@@ -47,7 +47,7 @@ Ingest D:\projects\mas对接 without moving original files. Obsidian must show a
 ```
 
 ```text
-My shell workspace is C:\Users\admin\Documents\New project 2, but my active Obsidian vault is C:\Users\admin\Documents\Obsidian Vault\00-知识库中控. Ingest D:\projects\mas对接. Do not write only into the project workspace; update the vault's ingest/index.md and wiki pages.
+My shell workspace is C:\Users\<user>\Documents\project, but my active Obsidian vault is C:\Users\<user>\Documents\Obsidian Vault\00-知识库中控. Ingest D:\projects\mas对接. Do not write only into the project workspace; update the vault's ingest/index.md and wiki pages.
 ```
 
 Expected:

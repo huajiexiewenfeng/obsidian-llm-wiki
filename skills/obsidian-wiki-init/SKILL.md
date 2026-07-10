@@ -31,6 +31,25 @@ Before writing files, inspect:
 - existing `00-知识库中控/ingest/index.md`
 - whether the user requested full scanning or structure-only scanning
 
+## Wiki Root Resolution
+
+Before writing, resolve and state `vault_root`, `control_center`, and
+`wiki_root` using this shared order:
+
+1. User-provided Vault, control-center, or wiki path.
+2. Nearest `.obsidian-llm-wiki.json` from the current working directory upward.
+3. `OBSIDIAN_LLM_WIKI_ROOT`.
+4. Exactly one active Vault in the user configuration.
+5. Otherwise stop with `missing-config` or ask the user to choose when multiple roots exist.
+
+Do not search the whole disk. For init, the confirmed target may be a new Vault
+whose control center does not yet exist; create it only after the user confirms
+the resolved Vault. Before writing, run or follow the equivalent of:
+
+```text
+python scripts/llm_wiki.py root resolve --cwd <working-directory> --format json
+```
+
 ## Workflow
 
 1. Confirm the target vault path from context or user instruction.

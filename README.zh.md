@@ -111,6 +111,28 @@ npx skills add .
 
 安装后，重启 Codex 或你的 agent runtime，让 skills 重新被发现。
 
+### 根目录配置
+
+运行环境要求 Python 3.10 或更新版本。当没有显式传入 Vault 时，在工作项目中创建
+`.obsidian-llm-wiki.json`：
+
+```json
+{
+  "schema_version": 1,
+  "vault_root": "D:/notes/My Vault",
+  "control_center": "00-知识库中控",
+  "active": true
+}
+```
+
+只解析、不写入：
+
+```text
+python scripts/llm_wiki.py root resolve --cwd . --format json
+```
+
+解析顺序为显式路径、最近的项目配置、环境变量、再到唯一激活的用户配置 Vault；工具不会扫描整块磁盘。
+
 ## 使用示例
 
 自然表达即可：

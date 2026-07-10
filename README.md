@@ -112,6 +112,29 @@ npx skills add .
 
 After installation, restart Codex or your agent runtime so the skills can be rediscovered.
 
+### Root configuration
+
+Runtime requirement: Python 3.10 or newer. When a Vault is not supplied
+explicitly, create `.obsidian-llm-wiki.json` in the working project:
+
+```json
+{
+  "schema_version": 1,
+  "vault_root": "D:/notes/My Vault",
+  "control_center": "00-知识库中控",
+  "active": true
+}
+```
+
+Resolve without writing:
+
+```text
+python scripts/llm_wiki.py root resolve --cwd . --format json
+```
+
+Resolution order is explicit path, nearest project configuration, environment,
+then exactly one active user-configured Vault. The tools never scan the whole disk.
+
 ## Usage Examples
 
 Use it naturally:

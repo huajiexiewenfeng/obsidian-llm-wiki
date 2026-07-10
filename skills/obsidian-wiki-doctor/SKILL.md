@@ -13,33 +13,39 @@ Use this skill to look, score, validate, and explain. Do not edit vault files.
 
 Use `obsidian-wiki-maintain` when the user asks to fix, repair, patch links, update `index.md`, add source proxies, or apply findings from a doctor report.
 
-## Required First Check
+## Wiki Root Resolution
 
-1. Resolve the target control center or wiki root.
-2. Prefer the user-provided path.
-3. Otherwise honor `OBSIDIAN_LLM_WIKI_ROOT`.
-4. Otherwise allow the doctor script fallback behavior.
-5. State the resolved control center and wiki root in the answer.
+Before reading, resolve and state `vault_root`, `control_center`, and
+`wiki_root` using the shared order: user path, nearest project
+`.obsidian-llm-wiki.json`, `OBSIDIAN_LLM_WIKI_ROOT`, then exactly one active
+Vault in user configuration. Otherwise stop with `missing-config` or ask the
+user to choose when multiple roots exist. Do not search the whole disk.
+
+```text
+python scripts/llm_wiki.py root resolve --cwd <working-directory> --format json
+```
 
 ## Commands
 
 Human report:
 
 ```text
-python scripts/obsidian_wiki_doctor.py report --root <control-center-or-vault> --format text
+python scripts/llm_wiki.py doctor report --root <control-center-or-vault> --format text
 ```
 
 Machine validation:
 
 ```text
-python scripts/obsidian_wiki_doctor.py validate --root <control-center-or-vault> --format json --fail-on error
+python scripts/llm_wiki.py doctor validate --root <control-center-or-vault> --format json --fail-on error
 ```
 
 Structured score:
 
 ```text
-python scripts/obsidian_wiki_doctor.py score --root <control-center-or-vault> --format json
+python scripts/llm_wiki.py doctor score --root <control-center-or-vault> --format json
 ```
+
+`scripts/obsidian_wiki_doctor.py` remains compatible in v0.2.
 
 ## Interpretation Rules
 

@@ -155,11 +155,14 @@ This logic is shared with `maintain` and kept identical.
 1. If the user provides a vault, control-center, or wiki path, use it (`--root`).
 2. Else, if `OBSIDIAN_LLM_WIKI_ROOT` is set, use it. Repo config is deferred to V0.1.
 3. Else, if the default control center
-   `C:\Users\admin\Documents\Obsidian Vault\00-知识库中控` exists, use it.
+   `C:\Users\<user>\Documents\Obsidian Vault\00-知识库中控` exists, use it.
    This path is a fallback default only, never a hard requirement.
 4. Else, search for a control center containing `wiki/index.md` and `wiki/log.md`.
 5. Else, accept a direct wiki root containing `index.md` and `log.md`.
 6. If multiple candidates exist, ask the user to choose.
+
+Superseded by the v0.2 shared Root Resolver; this path is a historical example,
+not a runtime default.
 
 The report must print the resolved control center and wiki root.
 

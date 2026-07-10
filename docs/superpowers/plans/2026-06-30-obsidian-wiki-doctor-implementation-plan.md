@@ -141,7 +141,7 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-DEFAULT_CONTROL_CENTER = Path(r"C:\Users\admin\Documents\Obsidian Vault\00-知识库中控")
+DEFAULT_CONTROL_CENTER = Path(r"C:\Users\<user>\Documents\Obsidian Vault\00-知识库中控")
 ENV_ROOT = "OBSIDIAN_LLM_WIKI_ROOT"
 
 @dataclass(frozen=True)
@@ -169,6 +169,9 @@ class WikiState:
     ingest_started: bool
     generated_pages_exist: bool
 ```
+
+Superseded by the v0.2 shared Root Resolver; this path is a historical example,
+not a runtime default.
 
 Add `read_text`, `is_control_center`, `is_direct_wiki_root`, `resolve_root`, `resolve_explicit_root`, `invalid_root`, `parse_markdown_table_rows`, `build_state`, `run_checks`, `run_validate`, `run_score`, `run_report`, `build_parser`, and `main`. The signatures must be exactly:
 

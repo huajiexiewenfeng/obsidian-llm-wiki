@@ -78,13 +78,17 @@ limited by wiki coverage.
 Expected flow:
 
 ```text
-resolve control center or wiki root
+resolve vault, control center, and wiki root through the shared Root Resolver
   -> run read-only doctor checks
   -> classify findings as Errors or Warnings, with not-applicable score dimensions when signals are absent
   -> compute directional score
   -> report evidence and redacted paths
   -> hand repair scope to maintain when the user approves fixes
 ```
+
+Before every read or write workflow, resolve with the same order: explicit path,
+nearest `.obsidian-llm-wiki.json`, `OBSIDIAN_LLM_WIKI_ROOT`, then exactly one
+active user-configured Vault. Use `python scripts/llm_wiki.py root resolve --cwd . --format json` to inspect it without writing.
 
 Doctor is for measurement and diagnosis. It must not edit vault files.
 

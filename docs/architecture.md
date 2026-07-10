@@ -17,6 +17,14 @@ obsidian-wiki-doctor measures the wiki beside this loop.
 obsidian-wiki-maintain applies approved repairs from doctor findings.
 ```
 
+## Root Resolver Core
+
+`scripts/llm_wiki_core/root.py` is the single Root Resolver boundary for every
+workflow and Doctor invocation. It resolves an explicit path, the nearest
+project `.obsidian-llm-wiki.json`, `OBSIDIAN_LLM_WIKI_ROOT`, or exactly one
+active user-configured Vault in that order. It returns a structured error rather
+than scanning the filesystem or selecting between multiple Vaults.
+
 ## Skill Boundaries
 
 ### obsidian-wiki-init

@@ -28,15 +28,20 @@ repairs. Do not use this skill to answer knowledge questions. Use
 Before reading or updating any wiki page, resolve and state the actual wiki
 root. Do not assume the current shell working directory is the Obsidian wiki.
 
-Resolution priority:
+Before reading or writing, resolve and state `vault_root`, `control_center`, and
+`wiki_root` using the shared order:
 
-1. If the user provides a vault, control-center, or wiki path, use it.
-2. If `C:\Users\admin\Documents\Obsidian Vault\00-知识库中控\wiki`
-   exists, prefer it as the default wiki root.
-3. Otherwise, search for an Obsidian control center that has `wiki/index.md`
-   and `wiki/log.md`, or a wiki root that has `index.md` and `log.md`.
-4. If multiple candidates exist, ask the user which wiki is active.
-5. Before making edits, say which wiki root is being used.
+1. User-provided Vault, control-center, or wiki path.
+2. Nearest `.obsidian-llm-wiki.json` from the current working directory upward.
+3. `OBSIDIAN_LLM_WIKI_ROOT`.
+4. Exactly one active Vault in the user configuration.
+5. Otherwise stop with `missing-config` or ask the user to choose when multiple roots exist.
+
+Do not search the whole disk. Before writes, run or follow the equivalent of:
+
+```text
+python scripts/llm_wiki.py root resolve --cwd <working-directory> --format json
+```
 
 If a project workspace contains an `index.md` but is not the resolved Obsidian
 wiki root, do not maintain that workspace as the wiki unless the user
