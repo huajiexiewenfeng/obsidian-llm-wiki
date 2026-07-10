@@ -9,6 +9,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from llm_wiki_core.root import (
+    configure_user_default,
     default_obsidian_metadata_path,
     default_user_config_path,
     discover_recent_vaults,
@@ -290,6 +291,48 @@ class RecentVaultDiscoveryTests(unittest.TestCase):
         )
 
         self.assertEqual(result, Path("C:/Users/alice/AppData/Roaming/obsidian/obsidian.json"))
+
+
+class DefaultVaultConfigurationTests(unittest.TestCase):
+    def test_preview_requires_confirmation_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault, _, _ = make_vault(base)
+            config = base / "config.json"
+
+            result = configure_user_default(str(vault), config, confirm=False)
+
+            self.assertTrue(result.confirmation_required)
+            self.assertFalse(result.configured)
+            self.assertFalse(config.exists())
+
+    def test_switch_keeps_old_vault_inactive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            first, _, _ = make_vault(base / "first")
+            second, _, _ = make_vault(base / "second")
+            config = base / "config.json"
+            configure_user_default(str(first), config, confirm=True)
+
+            result = configure_user_default(str(second), config, confirm=True)
+
+            vaults = json.loads(config.read_text(encoding="utf-8"))["vaults"]
+            self.assertTrue(result.configured)
+            self.assertEqual(len(vaults), 2)
+            self.assertFalse(vaults[0]["active"])
+            self.assertTrue(vaults[1]["active"])
+
+    def test_invalid_existing_config_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault, _, _ = make_vault(base)
+            config = write(base / "config.json", "{invalid-json")
+
+            result = configure_user_default(str(vault), config, confirm=True)
+
+            self.assertFalse(result.configured)
+            self.assertEqual(result.root.error.check, "invalid-config")
+            self.assertEqual(config.read_text(encoding="utf-8"), "{invalid-json")
 
 
 class RepositoryContractTests(unittest.TestCase):

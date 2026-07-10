@@ -1,7 +1,9 @@
 from .root import (
+    ConfigureResult,
     DiscoveryResult,
     ResolvedRoot,
     RootIssue,
+    configure_user_default,
     default_obsidian_metadata_path,
     discover_recent_vaults,
     resolve_explicit_root,
@@ -9,9 +11,11 @@ from .root import (
 )
 
 __all__ = [
+    "ConfigureResult",
     "DiscoveryResult",
     "ResolvedRoot",
     "RootIssue",
+    "configure_user_default",
     "default_obsidian_metadata_path",
     "discover_recent_vaults",
     "resolve_explicit_root",

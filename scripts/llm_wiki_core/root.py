@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Mapping
+import tempfile
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,6 +39,14 @@ class DiscoveryResult:
     source: str
     status: str
     message: str | None = None
+
+
+@dataclass(frozen=True)
+class ConfigureResult:
+    root: ResolvedRoot
+    config_path: Path
+    confirmation_required: bool
+    configured: bool
 
 
 def has_wiki_marker(path: Path) -> bool:
@@ -267,6 +276,61 @@ def discover_recent_vaults(metadata_path: Path) -> DiscoveryResult:
             seen.add(resolved)
             candidates.append(resolved)
     return DiscoveryResult(tuple(candidates), "obsidian-recent", "ok")
+
+
+def update_active_vault(payload: dict[str, object], root: ResolvedRoot) -> dict[str, object]:
+    assert root.vault_root is not None and root.control_center is not None
+    target = {"vault_root": str(root.vault_root), "control_center": root.control_center.name, "active": True}
+    updated: list[dict[str, object]] = []
+    found = False
+    for item in payload["vaults"]:
+        if not isinstance(item, dict):
+            continue
+        record = dict(item)
+        if record.get("vault_root") == target["vault_root"] and record.get("control_center", DEFAULT_CONTROL_CENTER_NAME) == target["control_center"]:
+            record.update(target)
+            found = True
+        else:
+            record["active"] = False
+        updated.append(record)
+    if not found:
+        updated.append(target)
+    next_payload = dict(payload)
+    next_payload["schema_version"] = 1
+    next_payload["vaults"] = updated
+    return next_payload
+
+
+def write_json_atomically(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+    try:
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def configure_user_default(root_value: str, user_config_path: Path, confirm: bool) -> ConfigureResult:
+    root = resolve_explicit_root(root_value, source="configure")
+    if root.error is not None:
+        return ConfigureResult(root, user_config_path, False, False)
+    try:
+        payload = load_json_object(user_config_path) if user_config_path.exists() else {"schema_version": 1, "vaults": []}
+        if payload.get("schema_version") != 1 or not isinstance(payload.get("vaults"), list):
+            raise ValueError("User configuration requires schema_version 1 and a vaults array.")
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        return ConfigureResult(config_issue("invalid-config", user_config_path, str(exc), "configure"), user_config_path, False, False)
+    if not confirm:
+        return ConfigureResult(root, user_config_path, True, False)
+    try:
+        write_json_atomically(user_config_path, update_active_vault(payload, root))
+    except OSError as exc:
+        return ConfigureResult(config_issue("invalid-config", user_config_path, str(exc), "configure"), user_config_path, False, False)
+    return ConfigureResult(root, user_config_path, False, True)
 
 
 def resolve_user_config(path: Path) -> ResolvedRoot:
