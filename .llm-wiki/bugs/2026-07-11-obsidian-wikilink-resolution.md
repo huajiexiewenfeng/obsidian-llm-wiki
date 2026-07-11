@@ -16,7 +16,7 @@
 - secondary_bridges: systematic-debugging, brainstorming, test-driven-development
 - confidence: high
 - reason: The production resolver disagrees with Obsidian Vault-root and dotted-filename semantics.
-- next_gate: project-finish sync and review
+- next_gate: branch integration or external review
 - routed_at: 2026-07-11
 
 ## Source
@@ -71,6 +71,10 @@ Follow `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implement
 - result_summary: All 56 tests passed. Covered WikiLink structural findings are absent from the real Vault report; remaining Doctor failure is limited to the explicitly excluded sensitive-pattern findings.
 - limitation: The installed skill cache is not updated by this source commit; deployment or reinstall is a separate action.
 - residual_risk: Obsidian syntax outside the approved scope remains unchanged; ambiguous duplicate basenames intentionally remain unresolved.
+- executor: agent-local
+- authority: agent-local
+- raw_output_ref: current Codex task RED, GREEN, full unittest, and real Vault command outputs
+- test_integrity: six real CLI tests added; no mocks or assertions weakened; over-mocking risk low
 
 ## Flow Record
 
@@ -80,13 +84,15 @@ Follow `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implement
 | design | done | Approved Chinese resolver design | 2026-07-11 |
 | plan | done | `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md` | 2026-07-11 |
 | development | done | Resolver and regression-test commit `d0ab175` | 2026-07-11 |
-| testing | done | 56 tests and real Vault source-runtime verification | 2026-07-11 |
-| archive | pending | Awaiting project-finish |  |
+| testing | active | 56 agent-local tests and real Vault source-runtime verification; awaiting CI or review | 2026-07-11 |
+| archive | done | `.llm-wiki/handoff/2026-07-11-obsidian-wikilink-resolution-handoff.md` | 2026-07-11 |
 
 ## Artifacts
 
 - `docs/superpowers/specs/2026-07-11-obsidian-wikilink-resolution-design.md`
 - `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md`
+- `.llm-wiki/handoff/2026-07-11-obsidian-wikilink-resolution-handoff.md`
+- `.llm-wiki/artifacts/index.md`
 
 ## Open Questions
 
