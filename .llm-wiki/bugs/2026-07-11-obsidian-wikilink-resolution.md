@@ -3,7 +3,7 @@
 ## Summary
 
 - title: Obsidian Wiki Doctor incorrectly reports valid WikiLinks as broken
-- status: ready
+- status: verified
 - flow_id: 2026-07-11-obsidian-wikilink-resolution
 - severity: high
 - owner: Codex
@@ -16,7 +16,7 @@
 - secondary_bridges: systematic-debugging, brainstorming, test-driven-development
 - confidence: high
 - reason: The production resolver disagrees with Obsidian Vault-root and dotted-filename semantics.
-- next_gate: scope lock and TDD execution
+- next_gate: project-finish sync and review
 - routed_at: 2026-07-11
 
 ## Source
@@ -66,22 +66,22 @@ Follow `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implement
 
 ## Verification
 
-- status: not-run
-- commands_or_checks: targeted unittest, full unittest suite, real Vault Doctor validation
-- result_summary:
-- limitation:
-- residual_risk: Ambiguous duplicate basenames must remain unresolved rather than guessed.
+- status: passed
+- commands_or_checks: six targeted WikiLink tests; full unittest discovery; source-tree Doctor validation and score against the current Vault
+- result_summary: All 56 tests passed. Covered WikiLink structural findings are absent from the real Vault report; remaining Doctor failure is limited to the explicitly excluded sensitive-pattern findings.
+- limitation: The installed skill cache is not updated by this source commit; deployment or reinstall is a separate action.
+- residual_risk: Obsidian syntax outside the approved scope remains unchanged; ambiguous duplicate basenames intentionally remain unresolved.
 
 ## Flow Record
 
 | Step | Status | Evidence | Updated |
 |---|---|---|---|
 | source | done | User report and real Vault Doctor output | 2026-07-11 |
-| design | done | Approved resolver design | 2026-07-11 |
+| design | done | Approved Chinese resolver design | 2026-07-11 |
 | plan | done | `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md` | 2026-07-11 |
-| development | pending |  |  |
-| testing | pending |  |  |
-| archive | pending |  |  |
+| development | done | Resolver and regression-test commit `d0ab175` | 2026-07-11 |
+| testing | done | 56 tests and real Vault source-runtime verification | 2026-07-11 |
+| archive | pending | Awaiting project-finish |  |
 
 ## Artifacts
 

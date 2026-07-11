@@ -310,9 +310,12 @@ git commit -m "fix: resolve Obsidian WikiLinks with Vault semantics"
 
 ```powershell
 $env:PYTHONUTF8='1'
+if (-not $env:OBSIDIAN_LLM_WIKI_ROOT) {
+  throw 'Set OBSIDIAN_LLM_WIKI_ROOT to the absolute Vault path before verification.'
+}
 $raw = & 'C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' `
   'scripts\llm_wiki.py' doctor validate `
-  --root 'C:\Users\admin\Documents\Obsidian Vault' `
+  --root $env:OBSIDIAN_LLM_WIKI_ROOT `
   --format json --fail-on error | Out-String
 $doctorExit = $LASTEXITCODE
 $items = $raw | ConvertFrom-Json
@@ -336,9 +339,12 @@ $items = $raw | ConvertFrom-Json
 
 ```powershell
 $env:PYTHONUTF8='1'
+if (-not $env:OBSIDIAN_LLM_WIKI_ROOT) {
+  throw 'Set OBSIDIAN_LLM_WIKI_ROOT to the absolute Vault path before verification.'
+}
 & 'C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' `
   'scripts\llm_wiki.py' doctor score `
-  --root 'C:\Users\admin\Documents\Obsidian Vault' `
+  --root $env:OBSIDIAN_LLM_WIKI_ROOT `
   --format json
 ```
 
