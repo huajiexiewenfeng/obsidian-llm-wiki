@@ -191,7 +191,12 @@ def resolve_wikilink(source: Path, target: str, wiki_root: Path | None = None) -
         return resolved
 
     basename = Path(link_target).with_suffix(".md").name if Path(link_target).suffix == "" else Path(link_target).name
-    matches = sorted(path.resolve() for path in iter_markdown_files(wiki_root) if path.name.lower() == basename.lower())
+    markdown_files = [path.resolve() for path in iter_markdown_files(wiki_root)]
+    exact_matches = sorted(path for path in markdown_files if path.name == basename)
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+
+    matches = sorted(path for path in markdown_files if path.name.lower() == basename.lower())
     if len(matches) == 1:
         return matches[0]
     return resolved

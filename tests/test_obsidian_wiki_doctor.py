@@ -5,9 +5,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "obsidian_wiki_doctor.py"
+RUNTIME_SCRIPTS = REPO_ROOT / "skills" / "obsidian-wiki-runtime" / "scripts"
+sys.path.insert(0, str(RUNTIME_SCRIPTS))
+import obsidian_wiki_doctor as doctor
 
 
 def write(path: Path, text: str) -> Path:
@@ -203,6 +207,18 @@ class ValidationCheckTests(unittest.TestCase):
             result = run_doctor("validate", "--root", str(control), "--format", "json")
             findings = json.loads(result.stdout)
             self.assertNotIn("broken-index-link", {item["check"] for item in findings})
+
+    def test_obsidian_basename_wikilink_prefers_exact_case_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wiki_root = Path(tmp) / "wiki"
+            source = write(wiki_root / "index.md", "# Index\n")
+            folded = wiki_root / "topics" / "topic.md"
+            exact = wiki_root / "topics" / "Topic.md"
+
+            with patch.object(doctor, "iter_markdown_files", return_value=[folded, exact]):
+                resolved = doctor.resolve_wikilink(source, "Topic", wiki_root)
+
+            self.assertEqual(resolved, exact.resolve())
 
     def test_sensitive_pattern_redacts_dash_secret_like_filename(self):
         with tempfile.TemporaryDirectory() as tmp:

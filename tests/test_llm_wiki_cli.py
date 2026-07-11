@@ -91,7 +91,13 @@ class DefaultVaultCliTests(unittest.TestCase):
             base = Path(tmp)
             vault = make_vault(base)
             appdata = base / "appdata"
-            write(appdata / "obsidian" / "obsidian.json", json.dumps({
+            if sys.platform.startswith("win"):
+                metadata = appdata / "obsidian" / "obsidian.json"
+            elif sys.platform == "darwin":
+                metadata = base / "Library" / "Application Support" / "obsidian" / "obsidian.json"
+            else:
+                metadata = base / ".config" / "obsidian" / "obsidian.json"
+            write(metadata, json.dumps({
                 "vaults": {"recent": {"path": str(vault), "ts": 1, "open": True}},
             }))
             environment = os.environ.copy()
