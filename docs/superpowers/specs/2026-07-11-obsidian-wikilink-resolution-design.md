@@ -1,112 +1,112 @@
-# Obsidian WikiLink Resolution Fix Design
+# Obsidian WikiLink 解析修复设计
 
-Date: 2026-07-11
-Status: Approved for implementation planning
-Repository: huajiexiewenfeng/obsidian-llm-wiki
+日期：2026-07-11
+状态：已批准进入实施规划
+仓库：huajiexiewenfeng/obsidian-llm-wiki
 
-## Problem
+## 问题说明
 
-The Doctor currently reports valid Obsidian WikiLinks as broken because its resolver does not model Vault-root paths and uses incomplete Markdown-extension inference.
+当前 Doctor 会把合法的 Obsidian WikiLink 误报为断链，原因是解析器没有正确实现 Vault 根路径语义，并且对 Markdown 文件扩展名的推断不完整。
 
-Observed failures:
+已观察到以下错误：
 
-1. `[[00-知识库中控/wiki/topics/topic|Topic]]` is valid from the Vault root, but the resolver joins it to the source page directory.
-2. `[[00.知识库地图]]` and versioned names such as `[[v1.5.0 release]]` do not receive an implicit `.md` candidate because `Path.suffix` is non-empty.
-3. Basename lookup searches only `wiki/`, even though Obsidian can resolve a unique note elsewhere in the Vault.
-4. Ambiguous basenames need an explicit safe failure instead of an arbitrary match.
+1. `[[00-知识库中控/wiki/topics/topic|Topic]]` 是合法的 Vault 根路径链接，但解析器会把它拼接到来源页面所在目录。
+2. `[[00.知识库地图]]` 以及 `[[v1.5.0 release]]` 等带点号的文件名不会获得隐式 `.md` 候选路径，因为当前逻辑把 `Path.suffix` 非空误认为文件已经具有扩展名。
+3. 纯文件名查找只扫描 `wiki/`，但 Obsidian 可以解析 Vault 中其他位置的唯一同名笔记。
+4. 当 Vault 中存在多个同名笔记时，解析器必须安全地判定为不明确，不能任意选择一个目标。
 
-## Goals
+## 目标
 
-- Resolve explicit relative WikiLinks from the source page.
-- Resolve path-bearing non-relative WikiLinks from the Vault root.
-- Resolve basename WikiLinks uniquely across the Vault.
-- Infer `.md` for all targets that do not already end in `.md`, including dotted filenames.
-- Preserve broken findings for genuine misses and ambiguous basenames.
-- Keep existing Markdown-link behavior unchanged.
+- 从来源页面所在目录解析显式相对 WikiLink。
+- 从 Vault 根目录解析带目录、但没有显式相对前缀的 WikiLink。
+- 在整个 Vault 中唯一解析纯文件名 WikiLink。
+- 对所有未显式以 `.md` 结尾的目标尝试补充 `.md`，包括文件名本身含点号的情况。
+- 对真正不存在或存在重名歧义的目标继续输出断链。
+- 保持现有 Markdown 链接解析行为不变。
 
-## Non-Goals
+## 非目标
 
-- Do not change Vault discovery or user configuration.
-- Do not change sensitive-pattern detection or redaction.
-- Do not change scoring weights or finding severity.
-- Do not add third-party dependencies.
-- Do not implement every Obsidian URI or attachment behavior.
+- 不修改 Vault 自动发现或用户配置逻辑。
+- 不修改敏感模式检测或脱敏逻辑。
+- 不修改评分权重和 finding 严重级别。
+- 不引入第三方依赖。
+- 不在本次修复中覆盖全部 Obsidian URI、附件或嵌入语法。
 
-## Considered Approaches
+## 方案比较
 
-### A. Extend the existing resolver
+### 方案 A：扩展现有解析器
 
-Recommended. Keep the deterministic Python engine and make the resolution context explicit. This is focused, testable, and compatible with the zero-dependency architecture.
+采用此方案。保留当前确定性 Python 引擎，为解析器补充明确的 Vault 上下文。该方案改动集中、可测试，并符合项目零第三方依赖的架构。
 
-### B. Add fallback logic inside `check_internal_links`
+### 方案 B：在 `check_internal_links` 中增加兜底
 
-Rejected. It would split resolution behavior between scanning and resolver functions, making future callers inconsistent.
+不采用。这样会把解析规则分散到扫描逻辑和解析函数中，使后续调用者得到不一致的行为。
 
-### C. Add an external Obsidian parsing dependency
+### 方案 C：引入外部 Obsidian 解析库
 
-Rejected. It adds packaging and maintenance cost that is disproportionate to this focused compatibility fix.
+不采用。它会增加打包和维护成本，对本次聚焦的兼容性修复而言过重。
 
-## Resolution Context
+## 解析上下文
 
-WikiLink resolution needs four values:
+WikiLink 解析需要以下四项输入：
 
-- source Markdown file
-- raw WikiLink target
-- resolved Vault root
-- resolved generated Wiki root
+- 来源 Markdown 文件
+- 原始 WikiLink 目标
+- 已解析的 Vault 根目录
+- 已解析的生成 Wiki 根目录
 
-The Vault root is authoritative for path-bearing WikiLinks. The Wiki root remains useful as a compatibility fallback when Doctor is invoked with a direct wiki root and no distinct Vault is available.
+对于带目录的 WikiLink，Vault 根目录是权威解析起点。当 Doctor 以一个独立 Wiki 根目录运行、无法获得不同的 Vault 根目录时，Wiki 根目录作为兼容性回退。
 
-## Resolution Algorithm
+## 解析算法
 
-1. Normalize aliases and heading fragments without changing the original finding text.
-2. Ignore empty, heading-only, and external-scheme targets as today.
-3. Build file candidates using the literal target, `<target>.md` when it does not already end in `.md`, and `<target>/index.md`.
-4. For targets beginning with `./` or `../`, resolve only from the source page directory.
-5. For targets containing `/` or `\\` without an explicit relative prefix, resolve from the Vault root, then use the Wiki root only as a compatibility fallback.
-6. For basename targets, first accept a source-relative exact hit. Otherwise search Markdown files across the Vault by case-insensitive filename.
-7. Return a basename match only when exactly one file matches. Return the unresolved candidate for zero or multiple matches so Doctor continues to report the link.
-8. Keep Markdown links source-relative; this change applies only to Obsidian WikiLinks.
+1. 解析别名和标题片段，但不改变 finding 中保留的原始目标文本。
+2. 与现有行为一致，跳过空目标、仅标题片段目标以及外部协议目标。
+3. 对每个路径起点依次构造三个文件候选：原始目标、`<目标>.md`（目标未显式以 `.md` 结尾时）以及 `<目标>/index.md`。
+4. 对以 `./` 或 `../` 开头的目标，只从来源页面所在目录解析。
+5. 对包含 `/` 或 `\`、但没有显式相对前缀的目标，先从 Vault 根目录解析；只有在无法获得不同 Vault 上下文时才回退到 Wiki 根目录。
+6. 对纯文件名目标，先接受来源目录下的精确匹配；否则在整个 Vault 的 Markdown 文件中按文件名进行不区分大小写匹配。
+7. 纯文件名全局匹配只有在结果恰好为一个时才成功。零个或多个匹配都返回未解析结果，使 Doctor 继续报告断链。
+8. Markdown 链接仍保持来源页面相对语义；本次变更只应用于 Obsidian WikiLink。
 
-## API Shape
+## 接口调整
 
-Extend `resolve_wikilink` to accept `vault_root` in addition to `wiki_root`. Update `check_internal_links` to pass both values from `ResolvedRoot`.
+为 `resolve_wikilink` 增加 `vault_root` 参数，同时保留 `wiki_root`。`check_internal_links` 从 `ResolvedRoot` 中取得这两个目录并传给解析器。
 
-Refine candidate generation in one helper so source-relative, Vault-root, and Wiki-root checks share identical `.md` and directory-index behavior.
+把文件候选生成逻辑集中到一个辅助函数，确保来源目录、Vault 根目录和 Wiki 根目录使用完全一致的 `.md` 与目录索引规则。
 
-## Regression Tests
+## 回归测试
 
-Add focused tests that prove:
+新增聚焦测试，证明以下行为：
 
-1. A Vault-root WikiLink with directories resolves.
-2. An explicit `../` WikiLink resolves from a nested source page.
-3. A dotted extensionless note resolves by adding `.md`.
-4. A basename outside `wiki/` resolves when unique across the Vault.
-5. Duplicate basenames remain broken.
-6. A genuinely missing target remains broken.
-7. Existing Markdown and current WikiLink tests remain green.
+1. 带目录的 Vault 根路径 WikiLink 可以解析。
+2. 嵌套页面中的显式 `../` WikiLink 从来源目录解析。
+3. 带点号且省略 `.md` 的笔记可以通过补充 `.md` 解析。
+4. 位于 `wiki/` 之外的纯文件名笔记，在整个 Vault 中唯一时可以解析。
+5. 存在多个同名笔记时仍然报告断链。
+6. 真正不存在的目标仍然报告断链。
+7. 现有 Markdown 链接测试和 WikiLink 测试保持通过。
 
-Each new behavior must be introduced with a failing test before production code changes.
+每一项新行为都必须先添加失败测试并确认处于 RED 状态，然后才能修改生产代码。
 
-## Error And Safety Behavior
+## 错误与安全行为
 
-- Resolution must not read note contents; it may inspect file paths only.
-- No link target is rewritten by Doctor.
-- No duplicate basename is selected arbitrarily.
-- Existing safe finding redaction remains unchanged.
+- 解析过程只检查文件路径，不读取笔记正文。
+- Doctor 不重写任何链接目标。
+- 不会从多个同名目标中任意选择一个。
+- 保持现有 finding 安全脱敏行为不变。
 
-## Verification
+## 验证方式
 
-1. Run the new targeted unittest cases and observe the expected RED failures.
-2. Implement the smallest resolver change and run targeted tests to GREEN.
-3. Run the full test suite.
-4. Run Doctor against the current real Vault using the source-tree Runtime.
-5. Confirm structural link findings do not regress and genuine missing links remain reportable in fixtures.
+1. 运行新增的定向单元测试，确认它们按预期失败。
+2. 实现最小解析器修改，运行定向测试并进入 GREEN 状态。
+3. 运行完整测试套件。
+4. 使用源码仓库中的 Runtime 对当前真实 Vault 运行 Doctor。
+5. 确认覆盖范围内不再产生错误断链，同时测试夹具中的真实缺失链接仍然能够被报告。
 
-## Acceptance Criteria
+## 验收标准
 
-- All new regression tests pass.
-- The full repository test suite passes.
-- The current Vault produces no false broken-link findings for the covered semantics.
-- Sensitive findings, scoring, and root-discovery behavior remain unchanged.
-- No new dependency is introduced.
+- 所有新增回归测试通过。
+- 仓库完整测试套件通过。
+- 当前 Vault 对本设计覆盖的链接语义不再产生误报。
+- 敏感 finding、评分和根目录发现行为保持不变。
+- 不增加任何第三方依赖。
