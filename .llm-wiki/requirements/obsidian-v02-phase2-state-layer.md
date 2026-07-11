@@ -61,12 +61,12 @@
 
 ## 待确认问题
 
-- 用户已选择 Inline Execution；分支集成方式仍待选择。
+- Phase 2 已合入本地 `main`；后续工作由独立 Phase 3 Flow 承接。
 
 ## 说明
 
-- 当前基线使用 bundled Python 3.12.13 运行 50 个测试全部通过。
-- 当前仓库权威实现仍位于根目录 `scripts/`；runtime 打包不在本 Phase 2 计划中处理。
+- Phase 2 合并后使用 bundled Python 3.12.13 运行 95 个测试通过，2 项按环境条件跳过。
+- canonical 实现位于 `skills/obsidian-wiki-runtime/scripts/`；根目录 `scripts/` 仅保留 compatibility launcher。
 - Inventory 设计必须等待本 Flow 和 Phase 3 的状态写入路径完成。
 
 ## 验证记录
