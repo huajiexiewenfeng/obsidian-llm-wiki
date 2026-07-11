@@ -3,7 +3,7 @@
 ## Summary
 
 - title: Obsidian Wiki Doctor incorrectly reports valid WikiLinks as broken
-- status: planned
+- status: ready
 - flow_id: 2026-07-11-obsidian-wikilink-resolution
 - severity: high
 - owner: Codex
@@ -16,7 +16,7 @@
 - secondary_bridges: systematic-debugging, brainstorming, test-driven-development
 - confidence: high
 - reason: The production resolver disagrees with Obsidian Vault-root and dotted-filename semantics.
-- next_gate: user review of approved design record
+- next_gate: scope lock and TDD execution
 - routed_at: 2026-07-11
 
 ## Source
@@ -62,7 +62,7 @@ The resolver models path-bearing WikiLinks as source-relative paths and uses Pyt
 
 ## Fix Plan
 
-Implement the approved resolver order and add regression tests before production changes. Keep Markdown-link behavior unchanged.
+Follow `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md`: add failing regression tests, implement the approved resolver order, run the full suite and real Vault verification, then sync verified evidence. Keep Markdown-link behavior unchanged.
 
 ## Verification
 
@@ -78,7 +78,7 @@ Implement the approved resolver order and add regression tests before production
 |---|---|---|---|
 | source | done | User report and real Vault Doctor output | 2026-07-11 |
 | design | done | Approved resolver design | 2026-07-11 |
-| plan | pending |  |  |
+| plan | done | `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md` | 2026-07-11 |
 | development | pending |  |  |
 | testing | pending |  |  |
 | archive | pending |  |  |
@@ -86,6 +86,7 @@ Implement the approved resolver order and add regression tests before production
 ## Artifacts
 
 - `docs/superpowers/specs/2026-07-11-obsidian-wikilink-resolution-design.md`
+- `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md`
 
 ## Open Questions
 
