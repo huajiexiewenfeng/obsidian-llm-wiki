@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: Obsidian LLM Wiki v0.2 Phase 2 状态契约与安全写入
-- status: planned
+- status: done
 - flow_id: obsidian-v02-phase2-state-layer
 
 ## 来源
@@ -33,8 +33,8 @@
 ## 计划
 
 - active_plan: `docs/superpowers/plans/2026-07-11-obsidian-llm-wiki-v0.2-phase2-state-layer-implementation-plan.md`
-- status: candidate
-- evidence: 已完成逐测试、逐提交计划，待用户选择执行方式
+- status: confirmed
+- evidence: 用户选择 Inline Execution；计划由提交 `edcfc7a` 至 `903fdc1` 分步实现。
 
 ## 外部依赖
 
@@ -55,16 +55,35 @@
 | source | done | v0.2 可靠性设计与 Phase 1 实现 | 2026-07-11 |
 | design | done | `docs/superpowers/specs/2026-07-10-obsidian-llm-wiki-v0.2-design.md` | 2026-07-11 |
 | plan | done | `docs/superpowers/plans/2026-07-11-obsidian-llm-wiki-v0.2-phase2-state-layer-implementation-plan.md` | 2026-07-11 |
-| development | pending |  |  |
-| testing | pending |  |  |
-| archive | pending |  |  |
+| development | done | 7 个实现提交：schema、identity、lock、atomic writer、state init、managed regions、公开文档 | 2026-07-11 |
+| testing | done | passed-agent-local：bundled Python 运行 89 tests，0 failures，1 symlink privilege skip；CLI smoke 通过 | 2026-07-11 |
+| archive | done | `.llm-wiki/handoff/obsidian-v02-phase2-state-layer-handoff.md` | 2026-07-11 |
 
 ## 待确认问题
 
-- 实施计划完成后由用户选择 Subagent-Driven 或 Inline Execution。
+- 用户已选择 Inline Execution；分支集成方式仍待选择。
 
 ## 说明
 
 - 当前基线使用 bundled Python 3.12.13 运行 50 个测试全部通过。
 - 当前仓库权威实现仍位于根目录 `scripts/`；runtime 打包不在本 Phase 2 计划中处理。
 - Inventory 设计必须等待本 Flow 和 Phase 3 的状态写入路径完成。
+
+## 验证记录
+
+- executor: agent-local
+- command: bundled Python `-m unittest discover -s tests -v`
+- result: exit code 0；89 tests passed；1 项因 Windows 当前账户缺少符号链接权限而 skipped
+- CLI smoke: preview exit 1 且零写入；首次 confirm 创建 5 个状态文件；第二次 confirm 的 `create` 为空
+- static checks: `git diff --check` 通过；未发现 Phase 3 `ingest/inventory` parser
+- authority: agent-local，尚未经过 CI 或外部 reviewer
+
+## Test Integrity Gate
+
+- production_changes: yes
+- test_changes: yes；新增 502 行测试，没有删除既有断言
+- mocks_or_fixtures_changed: 仅 mock `os.replace` 以验证替换失败时保留原文件；未修改 fixture
+- assertions_added_or_removed: 只新增断言，未移除断言
+- expected_behavior_changed: 新增 Phase 2 行为，不放宽 Phase 1 行为
+- over_mocking_risk: low；CLI smoke 使用真实临时 Vault 补充了端到端验证
+- residual_risk: Windows symlink escape 测试需在具备 symlink 权限的环境或 CI 中补跑
