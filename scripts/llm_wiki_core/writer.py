@@ -14,9 +14,12 @@ from typing import Callable, Mapping
 
 from llm_wiki_core.state import (
     OperationRecord,
+    StateInitPlan,
     StateValidationError,
     empty_registry,
     ensure_within,
+    plan_state_init,
+    schema_payload,
     stable_record_id,
 )
 
@@ -349,3 +352,86 @@ def update_operation(
     records[operation_id] = updated
     save_operations(path, records, allowed_root=allowed_root)
     return updated
+
+
+def apply_state_init(plan: StateInitPlan) -> StateInitPlan:
+    plan.meta_root.mkdir(parents=True, exist_ok=True)
+    lock = VaultLock(
+        plan.meta_root / "lock.json",
+        allowed_root=plan.control_center,
+        command="state init",
+        target=plan.control_center,
+    )
+    with lock:
+        refreshed = plan_state_init(plan.control_center)
+        if not refreshed.create:
+            return refreshed
+        operations_path = refreshed.meta_root / "operations.json"
+        if "operations.json" in refreshed.create:
+            atomic_write_json(
+                operations_path,
+                empty_registry(),
+                allowed_root=plan.control_center,
+            )
+        operation = begin_operation(
+            operations_path,
+            allowed_root=plan.control_center,
+            kind="state-init",
+            idempotency_key="sha256:" + hashlib.sha256(b"state-init-v1").hexdigest(),
+            record_ids=[],
+            reuse_completed=False,
+        )
+        try:
+            payloads = {
+                "schema.json": schema_payload(),
+                "sources.json": empty_registry(),
+                "pages.json": empty_registry(),
+            }
+            for name in refreshed.create:
+                if name in payloads:
+                    update_operation(
+                        operations_path,
+                        operation.operation_id,
+                        allowed_root=plan.control_center,
+                        status="running",
+                        current_step=f"write-{name}",
+                    )
+                    atomic_write_json(
+                        refreshed.meta_root / name,
+                        payloads[name],
+                        allowed_root=plan.control_center,
+                    )
+                elif name == "change-log.jsonl":
+                    atomic_write_text(
+                        refreshed.meta_root / name,
+                        "",
+                        allowed_root=plan.control_center,
+                    )
+            append_change_event(
+                refreshed.meta_root / "change-log.jsonl",
+                allowed_root=plan.control_center,
+                operation_id=operation.operation_id,
+                kind="state-init",
+                record_ids=[],
+                old_checksums={},
+                new_checksums={},
+                result="completed",
+            )
+            update_operation(
+                operations_path,
+                operation.operation_id,
+                allowed_root=plan.control_center,
+                status="completed",
+                current_step="complete",
+            )
+            return plan_state_init(plan.control_center)
+        except BaseException as error:
+            update_operation(
+                operations_path,
+                operation.operation_id,
+                allowed_root=plan.control_center,
+                status="failed",
+                current_step="failed",
+                error=str(error),
+            )
+            raise

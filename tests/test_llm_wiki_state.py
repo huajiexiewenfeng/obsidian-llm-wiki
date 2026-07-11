@@ -22,6 +22,7 @@ from llm_wiki_core.state import (
     ensure_within,
     file_checksum,
     file_fingerprint,
+    plan_state_init,
     stable_record_id,
 )
 
@@ -133,3 +134,25 @@ class SourceIdentityTests(unittest.TestCase):
                 file_checksum(path),
                 "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
             )
+
+
+class StateInitPlanTests(unittest.TestCase):
+    def test_fresh_meta_lists_all_state_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp) / "00-知识库中控"
+            control.mkdir()
+            plan = plan_state_init(control)
+            self.assertEqual(
+                plan.create,
+                ("schema.json", "sources.json", "pages.json", "operations.json", "change-log.jsonl"),
+            )
+            self.assertEqual(plan.unchanged, ())
+
+    def test_invalid_existing_registry_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp) / "00-知识库中控"
+            meta = control / ".meta"
+            meta.mkdir(parents=True)
+            (meta / "sources.json").write_text('{"schema_version": 99}', encoding="utf-8")
+            with self.assertRaisesRegex(StateValidationError, "sources.json"):
+                plan_state_init(control)

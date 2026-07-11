@@ -11,6 +11,13 @@ SCHEMA_VERSION = 1
 SOURCE_STATUSES = frozenset({"pending", "processed", "failed"})
 SOURCE_MODES = frozenset({"path-index", "summary-ingest", "archive-import"})
 PAGE_TYPES = frozenset({"source", "topic", "project", "entity", "sop", "index", "log"})
+STATE_FILES = (
+    "schema.json",
+    "sources.json",
+    "pages.json",
+    "operations.json",
+    "change-log.jsonl",
+)
 
 
 class StateValidationError(ValueError):
@@ -203,6 +210,65 @@ class OperationRecord:
             updated_at=require_string(payload.get("updated_at"), "updated_at"),
             error=error_value,
         )
+
+
+@dataclass(frozen=True)
+class StateInitPlan:
+    control_center: Path
+    meta_root: Path
+    create: tuple[str, ...]
+    unchanged: tuple[str, ...]
+
+
+def schema_payload() -> dict[str, object]:
+    return {"schema_version": 1, "state_format": "obsidian-llm-wiki"}
+
+
+def validate_state_file(path: Path) -> None:
+    if path.name == "change-log.jsonl":
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            if line.strip():
+                payload = json.loads(line)
+                if not isinstance(payload, dict):
+                    raise StateValidationError("change-log entries must be objects")
+        return
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise StateValidationError(f"{path.name} has invalid schema")
+    if path.name == "schema.json":
+        if payload.get("state_format") != "obsidian-llm-wiki":
+            raise StateValidationError("schema.json has invalid state_format")
+    elif path.name == "sources.json":
+        decode_source_registry(payload)
+    elif path.name == "pages.json":
+        decode_page_registry(payload)
+    elif path.name == "operations.json":
+        for key, raw in registry_records(payload).items():
+            if not isinstance(key, str) or not isinstance(raw, dict):
+                raise StateValidationError("operations.json entries must be objects")
+            record = OperationRecord.from_dict(raw)
+            if record.operation_id != key:
+                raise StateValidationError("operation_id does not match registry key")
+
+
+def plan_state_init(control_center: Path) -> StateInitPlan:
+    control_center = control_center.resolve()
+    if not control_center.is_dir():
+        raise StateValidationError(f"control center does not exist: {control_center}")
+    meta_root = ensure_within(control_center / ".meta", control_center)
+    create: list[str] = []
+    unchanged: list[str] = []
+    for name in STATE_FILES:
+        path = meta_root / name
+        if not path.exists():
+            create.append(name)
+            continue
+        try:
+            validate_state_file(path)
+        except (OSError, json.JSONDecodeError, StateValidationError) as error:
+            raise StateValidationError(f"{name}: {error}") from error
+        unchanged.append(name)
+    return StateInitPlan(control_center, meta_root, tuple(create), tuple(unchanged))
 
 
 def empty_registry() -> dict[str, object]:
