@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -8,10 +9,19 @@ from typing import Mapping, TextIO
 
 from .state import (
     PAGE_TYPES,
+    PageRecord,
+    SourceRecord,
     StateValidationError,
+    canonical_path,
     casefold_path_key,
+    decode_page_registry,
+    decode_source_registry,
+    file_checksum,
+    file_fingerprint,
+    stable_record_id,
     validate_relative_path,
 )
+from .writer import file_text_checksum, read_json_object
 
 PAYLOAD_SCHEMA_VERSION = 1
 INGEST_MODES = frozenset({"path-index", "summary-ingest"})
@@ -24,6 +34,12 @@ SHA256_PATTERN = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 class IngestValidationError(ValueError):
     def __init__(self, message: str, *, check: str = "invalid-payload") -> None:
+        super().__init__(message)
+        self.check = check
+
+
+class IngestPlanConflict(ValueError):
+    def __init__(self, message: str, *, check: str) -> None:
         super().__init__(message)
         self.check = check
 
@@ -61,6 +77,52 @@ class IngestPayload:
     source: SourceInput
     pages: tuple[PageMutation, ...]
     projection_takeovers: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SourcePlan:
+    source_id: str
+    action: str
+    revision: int
+    candidate_source_ids: tuple[str, ...] = ()
+    conflict: Mapping[str, object] | None = None
+
+    def to_public_dict(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "source_id": self.source_id,
+            "action": self.action,
+            "revision": self.revision,
+            "candidate_source_ids": list(self.candidate_source_ids),
+        }
+        if self.conflict:
+            payload.update(self.conflict)
+        return payload
+
+
+@dataclass(frozen=True)
+class IngestPlan:
+    control_center: Path
+    source: SourcePlan
+    pages: tuple[object, ...]
+    projections: tuple[object, ...]
+    expected_checksums: Mapping[str, str | None]
+    idempotency_key: str
+    plan_checksum: str
+    confirmable: bool
+    confirmation_required: bool
+
+    def to_public_dict(self) -> dict[str, object]:
+        return {
+            "control_center": str(self.control_center),
+            "source": self.source.to_public_dict(),
+            "pages": [page.to_public_dict() for page in self.pages],
+            "projections": [projection.to_public_dict() for projection in self.projections],
+            "expected_checksums": dict(sorted(self.expected_checksums.items())),
+            "idempotency_key": self.idempotency_key,
+            "plan_checksum": self.plan_checksum,
+            "confirmable": self.confirmable,
+            "confirmation_required": self.confirmation_required,
+        }
 
 
 def _object(value: object, field: str) -> Mapping[str, object]:
@@ -310,3 +372,268 @@ def normalized_payload_dict(payload: IngestPayload) -> dict[str, object]:
         ],
         "projection_takeovers": list(payload.projection_takeovers),
     }
+
+
+def _digest(payload: Mapping[str, object]) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _resolve_source(
+    payload: IngestPayload,
+    sources: Mapping[str, SourceRecord],
+) -> tuple[SourcePlan, SourceRecord | None]:
+    source_path = canonical_path(payload.source.path)
+    path_key = casefold_path_key(source_path, windows=True)
+    same_path = [
+        record
+        for record in sources.values()
+        if casefold_path_key(record.canonical_path, windows=True) == path_key
+    ]
+    if len(same_path) > 1:
+        raise IngestPlanConflict(
+            "source registry contains duplicate canonical paths",
+            check="source-registry-conflict",
+        )
+    if same_path:
+        record = same_path[0]
+        action = "unchanged" if record.checksum == payload.source.checksum else "update"
+        revision = record.revision if action == "unchanged" else record.revision + 1
+        return SourcePlan(record.source_id, action, revision), record
+
+    candidates = tuple(
+        sorted(
+            record.source_id
+            for record in sources.values()
+            if record.checksum == payload.source.checksum
+        )
+    )
+    resolution = payload.source.move_resolution
+    if candidates and resolution is None:
+        return (
+            SourcePlan(
+                "",
+                "move-conflict",
+                1,
+                candidates,
+                {
+                    "check": "move-candidate",
+                    "resolution_actions": ["rebind", "new-source"],
+                },
+            ),
+            None,
+        )
+    if resolution and resolution.action == "rebind":
+        if resolution.source_id not in candidates:
+            return (
+                SourcePlan(
+                    resolution.source_id or "",
+                    "move-conflict",
+                    1,
+                    candidates,
+                    {"check": "invalid-move-candidate"},
+                ),
+                None,
+            )
+        record = sources[resolution.source_id]
+        if Path(record.display_path).exists():
+            return (
+                SourcePlan(
+                    record.source_id,
+                    "source-copy-not-move",
+                    record.revision,
+                    candidates,
+                    {
+                        "check": "source-copy-not-move",
+                        "resolution_actions": ["new-source"],
+                    },
+                ),
+                record,
+            )
+        return SourcePlan(record.source_id, "rebind", record.revision + 1), record
+    seed = path_key
+    if resolution and resolution.action == "new-source":
+        seed += "|new-source|" + payload.source.checksum
+    source_id = stable_record_id("src", seed)
+    return SourcePlan(source_id, "create", 1), None
+
+
+def _planned_source_record(
+    payload: IngestPayload,
+    source: SourcePlan,
+    previous: SourceRecord | None,
+    proxy_page_id: str | None,
+) -> SourceRecord:
+    return SourceRecord(
+        source_id=source.source_id,
+        display_path=str(payload.source.path),
+        canonical_path=canonical_path(payload.source.path),
+        source_type=payload.source.source_type,
+        mode=payload.source.mode,
+        status="pending",
+        fingerprint=dict(payload.source.fingerprint),
+        checksum=payload.source.checksum,
+        proxy_page_id=proxy_page_id,
+        sensitivity=payload.source.sensitivity,
+        last_verified_at=(previous.last_verified_at if previous else "pending-confirmation"),
+        revision=source.revision,
+    )
+
+
+def _planned_page_records(
+    existing: Mapping[str, PageRecord],
+    mutations: tuple[PageMutation, ...],
+    page_plans: tuple[object, ...],
+    source_id: str,
+) -> dict[str, PageRecord]:
+    records = dict(existing)
+    by_path = {mutation.relative_path: mutation for mutation in mutations}
+    for page in page_plans:
+        if page.action == "conflict":
+            continue
+        mutation = by_path[page.relative_path]
+        previous = records.get(page.page_id)
+        revision = previous.revision if previous else 1
+        if previous and page.action == "update":
+            revision += 1
+        records[page.page_id] = PageRecord(
+            page_id=page.page_id,
+            relative_path=page.relative_path,
+            page_type=mutation.page_type,
+            source_ids=(source_id,),
+            managed_checksum=page.new_managed_checksum,
+            revision=revision,
+        )
+    return records
+
+
+def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
+    from .page import plan_page_mutation
+    from .projection import plan_projections, read_change_events
+
+    control_center = control_center.resolve()
+    actual_fingerprint = file_fingerprint(payload.source.path)
+    if actual_fingerprint != dict(payload.source.fingerprint):
+        raise IngestPlanConflict(
+            "source fingerprint changed after payload creation",
+            check="source-fingerprint-conflict",
+        )
+    if file_checksum(payload.source.path) != payload.source.checksum:
+        raise IngestPlanConflict(
+            "source checksum changed after payload creation",
+            check="source-checksum-conflict",
+        )
+    meta = control_center / ".meta"
+    sources_path = meta / "sources.json"
+    pages_path = meta / "pages.json"
+    change_log_path = meta / "change-log.jsonl"
+    try:
+        sources = decode_source_registry(read_json_object(sources_path))
+        pages = decode_page_registry(read_json_object(pages_path))
+        events = read_change_events(change_log_path)
+    except (OSError, ValueError, StateValidationError) as error:
+        raise IngestPlanConflict(str(error), check="invalid-state") from error
+
+    source_plan, previous_source = _resolve_source(payload, sources)
+    if source_plan.action in {"move-conflict", "source-copy-not-move"}:
+        page_plans: tuple[object, ...] = ()
+        projection_plans: tuple[object, ...] = ()
+    else:
+        page_plans = tuple(
+            plan_page_mutation(
+                control_center,
+                mutation,
+                pages,
+                (source_plan.source_id,),
+            )
+            for mutation in payload.pages
+        )
+        planned_pages = _planned_page_records(
+            pages, payload.pages, page_plans, source_plan.source_id
+        )
+        proxy_path = next(
+            mutation.relative_path
+            for mutation in payload.pages
+            if mutation.role == "source-proxy"
+        )
+        proxy_page_id = next(
+            page.page_id for page in page_plans if page.relative_path == proxy_path
+        )
+        planned_sources = dict(sources)
+        planned_sources[source_plan.source_id] = _planned_source_record(
+            payload, source_plan, previous_source, proxy_page_id
+        )
+        next_sequence = max(
+            (
+                event.get("sequence", 0)
+                for event in events
+                if isinstance(event.get("sequence"), int)
+            ),
+            default=0,
+        ) + 1
+        prospective_event = {
+            "sequence": next_sequence,
+            "operation_id": "pending-confirmation",
+            "kind": "ingest-apply",
+            "record_ids": [source_plan.source_id]
+            + sorted(page.page_id for page in page_plans),
+            "result": "completed",
+        }
+        projection_plans = plan_projections(
+            control_center,
+            planned_sources,
+            planned_pages,
+            events,
+            payload.projection_takeovers,
+            prospective_event=prospective_event,
+        )
+
+    expected: dict[str, str | None] = {
+        ".meta/sources.json": file_text_checksum(sources_path),
+        ".meta/pages.json": file_text_checksum(pages_path),
+        ".meta/change-log.jsonl": file_text_checksum(change_log_path),
+    }
+    for page in page_plans:
+        expected[page.relative_path] = page.expected_file_checksum
+    for projection in projection_plans:
+        expected[projection.relative_path] = projection.expected_file_checksum
+    idempotency_key = _digest(
+        {
+            "control_center": canonical_path(control_center),
+            "source_id": source_plan.source_id,
+            "source_checksum": payload.source.checksum,
+            "payload": normalized_payload_dict(payload),
+            "projection_targets": sorted(PROJECTION_PATHS),
+        }
+    )
+    confirmable = (
+        source_plan.action not in {"move-conflict", "source-copy-not-move"}
+        and all(page.action != "conflict" for page in page_plans)
+        and all(projection.action != "conflict" for projection in projection_plans)
+    )
+    unsigned = {
+        "control_center": canonical_path(control_center),
+        "source": source_plan.to_public_dict(),
+        "pages": [page.to_public_dict() for page in page_plans],
+        "projections": [projection.to_public_dict() for projection in projection_plans],
+        "expected_checksums": dict(sorted(expected.items())),
+        "idempotency_key": idempotency_key,
+        "confirmable": confirmable,
+    }
+    plan_checksum = _digest(unsigned)
+    return IngestPlan(
+        control_center=control_center,
+        source=source_plan,
+        pages=page_plans,
+        projections=projection_plans,
+        expected_checksums=expected,
+        idempotency_key=idempotency_key,
+        plan_checksum=plan_checksum,
+        confirmable=confirmable,
+        confirmation_required=confirmable,
+    )

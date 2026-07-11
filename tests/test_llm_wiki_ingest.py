@@ -10,11 +10,14 @@ RUNTIME_SCRIPTS = REPO_ROOT / "skills" / "obsidian-wiki-runtime" / "scripts"
 sys.path.insert(0, str(RUNTIME_SCRIPTS))
 
 from llm_wiki_core.ingest import (
+    IngestPlanConflict,
     IngestValidationError,
     load_payload_file,
     load_payload_text,
     normalized_payload_dict,
+    plan_ingest,
 )
+from llm_wiki_core.state import SourceRecord, file_checksum, file_fingerprint
 import llm_wiki_core
 
 
@@ -188,3 +191,168 @@ class PayloadContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def write_registry(path: Path, records: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"schema_version": 1, "records": records}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def planner_fixture(base: Path, name: str = "source.md") -> tuple[Path, Path, dict[str, object]]:
+    control = base / "control"
+    meta = control / ".meta"
+    source_path = base / name
+    source_path.write_bytes(b"source-v1")
+    write_registry(meta / "sources.json", {})
+    write_registry(meta / "pages.json", {})
+    (meta / "change-log.jsonl").write_bytes(b"")
+    payload = valid_payload()
+    payload["source"]["path"] = str(source_path.resolve())
+    payload["source"]["fingerprint"] = file_fingerprint(source_path)
+    payload["source"]["checksum"] = file_checksum(source_path)
+    payload["pages"] = [payload["pages"][0]]
+    return control, source_path, payload
+
+
+def source_record(source_id: str, path: Path, checksum: str, *, revision: int = 1) -> SourceRecord:
+    return SourceRecord(
+        source_id=source_id,
+        display_path=str(path),
+        canonical_path=path.resolve().as_posix(),
+        source_type="markdown",
+        mode="summary-ingest",
+        status="processed",
+        fingerprint=file_fingerprint(path) if path.exists() else {"size": 9, "mtime_ns": 1},
+        checksum=checksum,
+        proxy_page_id=None,
+        sensitivity="normal",
+        last_verified_at="2026-07-11T00:00:00+00:00",
+        revision=revision,
+    )
+
+
+class IngestPlannerTests(unittest.TestCase):
+    def test_new_source_plan_is_deterministic_and_dry_run_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, _, raw = planner_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            before = {path.relative_to(control): path.read_bytes() for path in control.rglob("*") if path.is_file()}
+
+            first = plan_ingest(control, payload)
+            second = plan_ingest(control, payload)
+            after = {path.relative_to(control): path.read_bytes() for path in control.rglob("*") if path.is_file()}
+
+        self.assertEqual(first.plan_checksum, second.plan_checksum)
+        self.assertEqual(first.idempotency_key, second.idempotency_key)
+        self.assertEqual(first.source.action, "create")
+        self.assertTrue(first.confirmable)
+        self.assertEqual(before, after)
+
+    def test_same_path_reuses_source_and_changed_checksum_increments_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, source_path, raw = planner_fixture(Path(tmp))
+            existing = source_record("src-existing", source_path, raw["source"]["checksum"])
+            write_registry(control / ".meta/sources.json", {existing.source_id: existing.to_dict()})
+
+            same = plan_ingest(control, load_payload_text(json.dumps(raw)))
+            source_path.write_bytes(b"source-v2")
+            raw["source"]["fingerprint"] = file_fingerprint(source_path)
+            raw["source"]["checksum"] = file_checksum(source_path)
+            changed = plan_ingest(control, load_payload_text(json.dumps(raw)))
+
+        self.assertEqual(same.source.source_id, "src-existing")
+        self.assertEqual(same.source.action, "unchanged")
+        self.assertEqual(changed.source.source_id, "src-existing")
+        self.assertEqual(changed.source.action, "update")
+        self.assertEqual(changed.source.revision, 2)
+
+    def test_move_candidate_requires_resolution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            control, new_path, raw = planner_fixture(base, "new.md")
+            old_path = base / "old.md"
+            old_path.write_bytes(new_path.read_bytes())
+            existing = source_record("src-existing", old_path, raw["source"]["checksum"])
+            write_registry(control / ".meta/sources.json", {existing.source_id: existing.to_dict()})
+
+            plan = plan_ingest(control, load_payload_text(json.dumps(raw)))
+
+        self.assertEqual(plan.source.action, "move-conflict")
+        self.assertFalse(plan.confirmable)
+        self.assertEqual(plan.source.candidate_source_ids, ("src-existing",))
+
+    def test_rebind_requires_missing_old_path_and_new_source_stays_distinct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            control, new_path, raw = planner_fixture(base, "new.md")
+            old_path = base / "old.md"
+            old_path.write_bytes(new_path.read_bytes())
+            existing = source_record("src-existing", old_path, raw["source"]["checksum"])
+            write_registry(control / ".meta/sources.json", {existing.source_id: existing.to_dict()})
+            raw["source"]["move_resolution"] = {"action": "rebind", "source_id": "src-existing"}
+
+            copy_plan = plan_ingest(control, load_payload_text(json.dumps(raw)))
+            old_path.unlink()
+            rebind = plan_ingest(control, load_payload_text(json.dumps(raw)))
+            raw["source"]["move_resolution"] = {"action": "new-source"}
+            distinct = plan_ingest(control, load_payload_text(json.dumps(raw)))
+
+        self.assertEqual(copy_plan.source.action, "source-copy-not-move")
+        self.assertFalse(copy_plan.confirmable)
+        self.assertEqual(rebind.source.action, "rebind")
+        self.assertEqual(rebind.source.source_id, "src-existing")
+        self.assertNotEqual(distinct.source.source_id, "src-existing")
+
+    def test_source_fingerprint_or_checksum_drift_is_conflict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, source_path, raw = planner_fixture(Path(tmp))
+            raw["source"]["fingerprint"]["size"] += 1
+            with self.assertRaises(IngestPlanConflict) as fingerprint_error:
+                plan_ingest(control, load_payload_text(json.dumps(raw)))
+            self.assertEqual(fingerprint_error.exception.check, "source-fingerprint-conflict")
+
+            raw["source"]["fingerprint"] = file_fingerprint(source_path)
+            raw["source"]["checksum"] = "sha256:" + "b" * 64
+            with self.assertRaises(IngestPlanConflict) as checksum_error:
+                plan_ingest(control, load_payload_text(json.dumps(raw)))
+            self.assertEqual(checksum_error.exception.check, "source-checksum-conflict")
+
+    def test_payload_registry_and_target_drift_change_plan_checksum(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, source_path, raw = planner_fixture(Path(tmp))
+            initial = plan_ingest(control, load_payload_text(json.dumps(raw)))
+            self.assertNotIn("# Example", str(initial.to_public_dict()))
+
+            changed_payload = json.loads(json.dumps(raw))
+            changed_payload["pages"][0]["managed_body"] = "SECRET-CHANGED-BODY"
+            payload_plan = plan_ingest(control, load_payload_text(json.dumps(changed_payload)))
+
+            unrelated = source_record(
+                "src-unrelated",
+                source_path,
+                "sha256:" + "c" * 64,
+            )
+            unrelated = SourceRecord(
+                **{
+                    **unrelated.to_dict(),
+                    "canonical_path": "Z:/unrelated.md",
+                    "display_path": "Z:/unrelated.md",
+                }
+            )
+            write_registry(
+                control / ".meta/sources.json",
+                {unrelated.source_id: unrelated.to_dict()},
+            )
+            registry_plan = plan_ingest(control, load_payload_text(json.dumps(raw)))
+
+            (control / "wiki").mkdir(parents=True, exist_ok=True)
+            (control / "wiki/index.md").write_bytes(b"User projection\n")
+            target_plan = plan_ingest(control, load_payload_text(json.dumps(raw)))
+
+        self.assertNotEqual(initial.plan_checksum, payload_plan.plan_checksum)
+        self.assertNotEqual(initial.plan_checksum, registry_plan.plan_checksum)
+        self.assertNotEqual(registry_plan.plan_checksum, target_plan.plan_checksum)
+        self.assertNotIn("SECRET-CHANGED-BODY", str(payload_plan.to_public_dict()))
