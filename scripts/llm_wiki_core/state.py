@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Mapping
 
 SCHEMA_VERSION = 1
@@ -26,6 +28,46 @@ def validate_relative_path(value: str, field: str) -> str:
     if path.is_absolute() or ".." in path.parts or not path.parts:
         raise StateValidationError(f"{field} must be a control-center-relative path")
     return path.as_posix()
+
+
+def stable_record_id(prefix: str, seed: str) -> str:
+    if prefix not in {"src", "page", "op"}:
+        raise StateValidationError("record id prefix is invalid")
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}-{digest}"
+
+
+def canonical_path(path: Path) -> str:
+    return path.expanduser().resolve().as_posix()
+
+
+def ensure_within(path: Path, allowed_root: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    root = allowed_root.expanduser().resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise StateValidationError(f"unsafe_path: {resolved} is outside allowed root {root}") from error
+    return resolved
+
+
+def casefold_path_key(value: str, *, windows: bool | None = None) -> str:
+    normalized = value.replace("\\", "/")
+    use_windows = os.name == "nt" if windows is None else windows
+    return normalized.casefold() if use_windows else normalized
+
+
+def file_fingerprint(path: Path) -> dict[str, int]:
+    stat = path.stat()
+    return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+
+def file_checksum(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(chunk_size):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
 
 
 @dataclass(frozen=True)
