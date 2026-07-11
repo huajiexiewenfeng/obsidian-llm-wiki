@@ -21,7 +21,17 @@ from .state import (
     stable_record_id,
     validate_relative_path,
 )
-from .writer import file_text_checksum, read_json_object
+from .writer import (
+    VaultLock,
+    append_change_event,
+    atomic_write_json,
+    atomic_write_text,
+    begin_operation,
+    file_text_checksum,
+    read_json_object,
+    update_operation,
+    utc_now,
+)
 
 PAYLOAD_SCHEMA_VERSION = 1
 INGEST_MODES = frozenset({"path-index", "summary-ingest"})
@@ -42,6 +52,19 @@ class IngestPlanConflict(ValueError):
     def __init__(self, message: str, *, check: str) -> None:
         super().__init__(message)
         self.check = check
+
+
+class IngestWriteError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        current_step: str,
+        completed_targets: tuple[str, ...],
+    ) -> None:
+        super().__init__(message)
+        self.current_step = current_step
+        self.completed_targets = completed_targets
 
 
 @dataclass(frozen=True)
@@ -103,8 +126,8 @@ class SourcePlan:
 class IngestPlan:
     control_center: Path
     source: SourcePlan
-    pages: tuple[object, ...]
-    projections: tuple[object, ...]
+    pages: tuple["PagePlan", ...]
+    projections: tuple["ProjectionPlan", ...]
     expected_checksums: Mapping[str, str | None]
     idempotency_key: str
     plan_checksum: str
@@ -123,6 +146,16 @@ class IngestPlan:
             "confirmable": self.confirmable,
             "confirmation_required": self.confirmation_required,
         }
+
+
+@dataclass(frozen=True)
+class IngestResult:
+    status: str
+    operation_id: str
+    idempotency_key: str
+    source_id: str
+    record_ids: tuple[str, ...]
+    idempotent: bool = False
 
 
 def _object(value: object, field: str) -> Mapping[str, object]:
@@ -468,6 +501,9 @@ def _planned_source_record(
     source: SourcePlan,
     previous: SourceRecord | None,
     proxy_page_id: str | None,
+    *,
+    status: str = "pending",
+    verified_at: str | None = None,
 ) -> SourceRecord:
     return SourceRecord(
         source_id=source.source_id,
@@ -475,12 +511,15 @@ def _planned_source_record(
         canonical_path=canonical_path(payload.source.path),
         source_type=payload.source.source_type,
         mode=payload.source.mode,
-        status="pending",
+        status=status,
         fingerprint=dict(payload.source.fingerprint),
         checksum=payload.source.checksum,
         proxy_page_id=proxy_page_id,
         sensitivity=payload.source.sensitivity,
-        last_verified_at=(previous.last_verified_at if previous else "pending-confirmation"),
+        last_verified_at=(
+            verified_at
+            or (previous.last_verified_at if previous else "pending-confirmation")
+        ),
         revision=source.revision,
     )
 
@@ -488,7 +527,7 @@ def _planned_source_record(
 def _planned_page_records(
     existing: Mapping[str, PageRecord],
     mutations: tuple[PageMutation, ...],
-    page_plans: tuple[object, ...],
+    page_plans: tuple["PagePlan", ...],
     source_id: str,
 ) -> dict[str, PageRecord]:
     records = dict(existing)
@@ -541,8 +580,8 @@ def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
 
     source_plan, previous_source = _resolve_source(payload, sources)
     if source_plan.action in {"move-conflict", "source-copy-not-move"}:
-        page_plans: tuple[object, ...] = ()
-        projection_plans: tuple[object, ...] = ()
+        page_plans: tuple["PagePlan", ...] = ()
+        projection_plans: tuple["ProjectionPlan", ...] = ()
     else:
         page_plans = tuple(
             plan_page_mutation(
@@ -566,7 +605,11 @@ def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
         )
         planned_sources = dict(sources)
         planned_sources[source_plan.source_id] = _planned_source_record(
-            payload, source_plan, previous_source, proxy_page_id
+            payload,
+            source_plan,
+            previous_source,
+            proxy_page_id,
+            status="processed",
         )
         next_sequence = max(
             (
@@ -637,3 +680,291 @@ def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
         confirmable=confirmable,
         confirmation_required=confirmable,
     )
+
+
+def _registry_payload(records: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "records": {
+            key: value.to_dict()
+            for key, value in sorted(records.items())
+        },
+    }
+
+
+def _completed_event(
+    events: tuple[dict[str, object], ...], idempotency_key: str
+) -> dict[str, object] | None:
+    for event in reversed(events):
+        if (
+            event.get("idempotency_key") == idempotency_key
+            and event.get("result") == "completed"
+        ):
+            return event
+    return None
+
+
+def apply_ingest(
+    control_center: Path,
+    payload: IngestPayload,
+    confirmed_plan_checksum: str,
+    *,
+    fail_after_step: str | None = None,
+) -> IngestResult:
+    from .projection import plan_projections, read_change_events
+
+    control_center = control_center.resolve()
+    meta = control_center / ".meta"
+    operations_path = meta / "operations.json"
+    lock = VaultLock(
+        meta / "lock.json",
+        allowed_root=control_center,
+        command="ingest apply",
+        target=control_center,
+    )
+    with lock:
+        refreshed = plan_ingest(control_center, payload)
+        events = read_change_events(meta / "change-log.jsonl")
+        completed = _completed_event(events, refreshed.idempotency_key)
+        if completed is not None:
+            operation_id = str(completed.get("operation_id", ""))
+            try:
+                update_operation(
+                    operations_path,
+                    operation_id,
+                    allowed_root=control_center,
+                    status="completed",
+                    current_step="complete",
+                )
+            except (KeyError, OSError, ValueError):
+                pass
+            record_ids = tuple(
+                item
+                for item in completed.get("record_ids", [])
+                if isinstance(item, str)
+            )
+            return IngestResult(
+                status="completed",
+                operation_id=operation_id,
+                idempotency_key=refreshed.idempotency_key,
+                source_id=refreshed.source.source_id,
+                record_ids=record_ids,
+                idempotent=True,
+            )
+        if refreshed.plan_checksum != confirmed_plan_checksum:
+            raise IngestPlanConflict(
+                "confirmed plan checksum no longer matches current state",
+                check="plan-conflict",
+            )
+        if not refreshed.confirmable:
+            check = refreshed.source.conflict.get("check") if refreshed.source.conflict else None
+            raise IngestPlanConflict(
+                "ingest plan contains unresolved conflicts",
+                check=str(check or "plan-not-confirmable"),
+            )
+
+        sources_path = meta / "sources.json"
+        pages_path = meta / "pages.json"
+        change_log_path = meta / "change-log.jsonl"
+        sources = decode_source_registry(read_json_object(sources_path))
+        pages = decode_page_registry(read_json_object(pages_path))
+        source_plan, previous_source = _resolve_source(payload, sources)
+        planned_pages = _planned_page_records(
+            pages, payload.pages, refreshed.pages, source_plan.source_id
+        )
+        proxy_path = next(
+            mutation.relative_path
+            for mutation in payload.pages
+            if mutation.role == "source-proxy"
+        )
+        proxy_page_id = next(
+            page.page_id for page in refreshed.pages if page.relative_path == proxy_path
+        )
+        verified_at = utc_now()
+        pending_source = _planned_source_record(
+            payload,
+            source_plan,
+            previous_source,
+            proxy_page_id,
+            status="pending",
+            verified_at=verified_at,
+        )
+        processed_source = _planned_source_record(
+            payload,
+            source_plan,
+            previous_source,
+            proxy_page_id,
+            status="processed",
+            verified_at=verified_at,
+        )
+        pending_sources = dict(sources)
+        pending_sources[source_plan.source_id] = pending_source
+        processed_sources = dict(sources)
+        processed_sources[source_plan.source_id] = processed_source
+        record_ids = (source_plan.source_id,) + tuple(
+            sorted(page.page_id for page in refreshed.pages)
+        )
+        operation = begin_operation(
+            operations_path,
+            allowed_root=control_center,
+            kind="ingest-apply",
+            idempotency_key=refreshed.idempotency_key,
+            record_ids=list(record_ids),
+            reuse_completed=False,
+        )
+        completed_targets: list[str] = []
+        current_step = "start"
+
+        def enter(step: str) -> None:
+            nonlocal current_step
+            current_step = step
+            update_operation(
+                operations_path,
+                operation.operation_id,
+                allowed_root=control_center,
+                status="running",
+                current_step=step,
+            )
+
+        def inject() -> None:
+            if fail_after_step == current_step:
+                raise RuntimeError(f"injected failure after {current_step}")
+
+        try:
+            enter("write-source-pending")
+            atomic_write_json(
+                sources_path,
+                _registry_payload(pending_sources),
+                allowed_root=control_center,
+                expected_checksum=refreshed.expected_checksums[".meta/sources.json"],
+            )
+            completed_targets.append(".meta/sources.json")
+            inject()
+
+            enter("write-pages")
+            for page in refreshed.pages:
+                if page.action == "unchanged":
+                    continue
+                atomic_write_text(
+                    control_center / page.relative_path,
+                    page.rendered_text,
+                    allowed_root=control_center,
+                    expected_checksum=page.expected_file_checksum,
+                )
+                completed_targets.append(page.relative_path)
+            inject()
+
+            enter("write-page-registry")
+            atomic_write_json(
+                pages_path,
+                _registry_payload(planned_pages),
+                allowed_root=control_center,
+                expected_checksum=refreshed.expected_checksums[".meta/pages.json"],
+            )
+            completed_targets.append(".meta/pages.json")
+            inject()
+
+            next_sequence = max(
+                (
+                    event.get("sequence", 0)
+                    for event in events
+                    if isinstance(event.get("sequence"), int)
+                ),
+                default=0,
+            ) + 1
+            prospective = {
+                "sequence": next_sequence,
+                "operation_id": operation.operation_id,
+                "kind": "ingest-apply",
+                "record_ids": list(record_ids),
+                "result": "completed",
+            }
+            projections = plan_projections(
+                control_center,
+                processed_sources,
+                planned_pages,
+                events,
+                payload.projection_takeovers,
+                prospective_event=prospective,
+            )
+            if any(projection.action == "conflict" for projection in projections):
+                raise IngestPlanConflict(
+                    "projection changed after confirmation",
+                    check="plan-conflict",
+                )
+            enter("write-projections")
+            for projection in projections:
+                if projection.action == "unchanged":
+                    continue
+                atomic_write_text(
+                    control_center / projection.relative_path,
+                    projection.rendered_text,
+                    allowed_root=control_center,
+                    expected_checksum=projection.expected_file_checksum,
+                )
+                completed_targets.append(projection.relative_path)
+            inject()
+
+            enter("write-source-processed")
+            atomic_write_json(
+                sources_path,
+                _registry_payload(processed_sources),
+                allowed_root=control_center,
+                expected_checksum=file_text_checksum(sources_path),
+            )
+            inject()
+
+            enter("append-change-log")
+            append_change_event(
+                change_log_path,
+                allowed_root=control_center,
+                operation_id=operation.operation_id,
+                kind="ingest-apply",
+                record_ids=list(record_ids),
+                old_checksums={},
+                new_checksums={
+                    "sources.json": file_text_checksum(sources_path),
+                    "pages.json": file_text_checksum(pages_path),
+                },
+                result="completed",
+                idempotency_key=refreshed.idempotency_key,
+                summary={"source_action": source_plan.action},
+            )
+            completed_targets.append(".meta/change-log.jsonl")
+            inject()
+
+            enter("complete")
+            update_operation(
+                operations_path,
+                operation.operation_id,
+                allowed_root=control_center,
+                status="completed",
+                current_step="complete",
+            )
+            inject()
+            return IngestResult(
+                status="completed",
+                operation_id=operation.operation_id,
+                idempotency_key=refreshed.idempotency_key,
+                source_id=source_plan.source_id,
+                record_ids=record_ids,
+            )
+        except BaseException as error:
+            try:
+                update_operation(
+                    operations_path,
+                    operation.operation_id,
+                    allowed_root=control_center,
+                    status="failed",
+                    current_step=current_step,
+                    error=str(error),
+                )
+            except BaseException:
+                pass
+            if isinstance(error, IngestPlanConflict):
+                raise
+            raise IngestWriteError(
+                str(error),
+                current_step=current_step,
+                completed_targets=tuple(completed_targets),
+            ) from error

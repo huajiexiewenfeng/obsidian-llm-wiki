@@ -11,13 +11,23 @@ sys.path.insert(0, str(RUNTIME_SCRIPTS))
 
 from llm_wiki_core.ingest import (
     IngestPlanConflict,
+    IngestWriteError,
     IngestValidationError,
+    apply_ingest,
     load_payload_file,
     load_payload_text,
     normalized_payload_dict,
     plan_ingest,
 )
-from llm_wiki_core.state import SourceRecord, file_checksum, file_fingerprint
+from llm_wiki_core.projection import read_change_events
+from llm_wiki_core.state import (
+    SourceRecord,
+    decode_page_registry,
+    decode_source_registry,
+    file_checksum,
+    file_fingerprint,
+)
+from llm_wiki_core.writer import load_operations
 import llm_wiki_core
 
 
@@ -189,10 +199,6 @@ class PayloadContractTests(unittest.TestCase):
             load_payload_text(json.dumps(payload))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def write_registry(path: Path, records: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -356,3 +362,137 @@ class IngestPlannerTests(unittest.TestCase):
         self.assertNotEqual(initial.plan_checksum, registry_plan.plan_checksum)
         self.assertNotEqual(registry_plan.plan_checksum, target_plan.plan_checksum)
         self.assertNotIn("SECRET-CHANGED-BODY", str(payload_plan.to_public_dict()))
+
+
+def transaction_fixture(base: Path) -> tuple[Path, dict[str, object]]:
+    control, _, raw = planner_fixture(base)
+    write_registry(control / ".meta/operations.json", {})
+    return control, raw
+
+
+class IngestTransactionTests(unittest.TestCase):
+    def test_confirmed_transaction_writes_processed_state_pages_projections_and_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, raw = transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            plan = plan_ingest(control, payload)
+
+            result = apply_ingest(control, payload, plan.plan_checksum)
+
+            sources = decode_source_registry(
+                json.loads((control / ".meta/sources.json").read_text(encoding="utf-8"))
+            )
+            pages = decode_page_registry(
+                json.loads((control / ".meta/pages.json").read_text(encoding="utf-8"))
+            )
+            events = read_change_events(control / ".meta/change-log.jsonl")
+            operation = load_operations(control / ".meta/operations.json")[result.operation_id]
+            projection_files = {
+                relative: (control / relative).is_file()
+                for relative in ("wiki/index.md", "ingest/index.md", "wiki/log.md")
+            }
+            ingest_index = (control / "ingest/index.md").read_text(encoding="utf-8")
+            repeated = apply_ingest(control, payload, plan.plan_checksum)
+            repeated_events = read_change_events(control / ".meta/change-log.jsonl")
+
+        self.assertEqual(result.status, "completed")
+        self.assertFalse(result.idempotent)
+        self.assertEqual(sources[plan.source.source_id].status, "processed")
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["idempotency_key"], plan.idempotency_key)
+        self.assertEqual(operation.status, "completed")
+        self.assertTrue(all(projection_files.values()))
+        self.assertIn("processed", ingest_index)
+        self.assertTrue(repeated.idempotent)
+        self.assertEqual(repeated.operation_id, result.operation_id)
+        self.assertEqual(len(repeated_events), 1)
+
+    def test_wrong_confirmed_checksum_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, raw = transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            before = {path.relative_to(control): path.read_bytes() for path in control.rglob("*") if path.is_file()}
+
+            with self.assertRaises(IngestPlanConflict) as raised:
+                apply_ingest(control, payload, "sha256:" + "0" * 64)
+            after = {path.relative_to(control): path.read_bytes() for path in control.rglob("*") if path.is_file()}
+
+        self.assertEqual(raised.exception.check, "plan-conflict")
+        self.assertEqual(before, after)
+
+    def test_failure_after_pages_leaves_pending_source_and_failed_operation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, raw = transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            plan = plan_ingest(control, payload)
+
+            with self.assertRaises(IngestWriteError) as raised:
+                apply_ingest(control, payload, plan.plan_checksum, fail_after_step="write-pages")
+
+            sources = decode_source_registry(
+                json.loads((control / ".meta/sources.json").read_text(encoding="utf-8"))
+            )
+            operations = load_operations(control / ".meta/operations.json")
+            failed = next(iter(operations.values()))
+
+        self.assertEqual(sources[plan.source.source_id].status, "pending")
+        self.assertEqual(failed.status, "failed")
+        self.assertEqual(failed.current_step, "write-pages")
+        self.assertIn("wiki/sources/example.md", raised.exception.completed_targets)
+
+    def test_retry_after_appended_event_repairs_operation_without_duplicate_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, raw = transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            plan = plan_ingest(control, payload)
+            with self.assertRaises(IngestWriteError):
+                apply_ingest(
+                    control,
+                    payload,
+                    plan.plan_checksum,
+                    fail_after_step="append-change-log",
+                )
+            first_events = read_change_events(control / ".meta/change-log.jsonl")
+
+            result = apply_ingest(control, payload, plan.plan_checksum)
+            second_events = read_change_events(control / ".meta/change-log.jsonl")
+            operation = load_operations(control / ".meta/operations.json")[result.operation_id]
+
+        self.assertTrue(result.idempotent)
+        self.assertEqual(len(first_events), 1)
+        self.assertEqual(len(second_events), 1)
+        self.assertEqual(operation.status, "completed")
+
+    def test_each_transaction_step_records_precise_failure_position(self):
+        steps = (
+            "write-source-pending",
+            "write-pages",
+            "write-page-registry",
+            "write-projections",
+            "write-source-processed",
+            "append-change-log",
+            "complete",
+        )
+        for step in steps:
+            with self.subTest(step=step), tempfile.TemporaryDirectory() as tmp:
+                control, raw = transaction_fixture(Path(tmp))
+                payload = load_payload_text(json.dumps(raw))
+                plan = plan_ingest(control, payload)
+
+                with self.assertRaises(IngestWriteError):
+                    apply_ingest(
+                        control,
+                        payload,
+                        plan.plan_checksum,
+                        fail_after_step=step,
+                    )
+
+                operations = load_operations(control / ".meta/operations.json")
+                failed = next(iter(operations.values()))
+                self.assertEqual(failed.status, "failed")
+                self.assertEqual(failed.current_step, step)
+
+
+if __name__ == "__main__":
+    unittest.main()
