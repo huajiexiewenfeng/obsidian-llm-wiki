@@ -10,6 +10,7 @@ from .root import (
     resolve_root,
 )
 from .state import PageRecord, SourceRecord, StateValidationError
+from .writer import LockTimeout, VaultLock, classify_lock
 
 __all__ = [
     "ConfigureResult",
@@ -19,6 +20,9 @@ __all__ = [
     "PageRecord",
     "SourceRecord",
     "StateValidationError",
+    "LockTimeout",
+    "VaultLock",
+    "classify_lock",
     "configure_user_default",
     "default_obsidian_metadata_path",
     "discover_recent_vaults",
