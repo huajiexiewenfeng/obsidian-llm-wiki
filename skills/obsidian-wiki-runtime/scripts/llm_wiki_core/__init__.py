@@ -16,6 +16,16 @@ from .managed import (
     replace_managed_body,
     replace_projection_region,
 )
+from .ingest import (
+    IngestPayload,
+    IngestValidationError,
+    MoveResolution,
+    PageMutation,
+    SourceInput,
+    load_payload_file,
+    load_payload_text,
+    normalized_payload_dict,
+)
 from .state import (
     OperationRecord,
     PageRecord,
@@ -38,6 +48,14 @@ __all__ = [
     "ResolvedRoot",
     "RootIssue",
     "ManagedConflict",
+    "IngestPayload",
+    "IngestValidationError",
+    "MoveResolution",
+    "PageMutation",
+    "SourceInput",
+    "load_payload_file",
+    "load_payload_text",
+    "normalized_payload_dict",
     "managed_checksum",
     "replace_frontmatter_region",
     "replace_managed_body",
