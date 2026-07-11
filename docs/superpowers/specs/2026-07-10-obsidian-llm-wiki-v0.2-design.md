@@ -152,7 +152,7 @@ scripts/obsidian_wiki_doctor.py
 
 ```text
 0  成功
-1  可预期降级，例如未配置或未启用
+1  可预期的未执行状态，例如 confirmation-required、missing-config、disabled-config 或 multiple-roots；调用方必须读取 JSON status/check 字段区分原因
 2  校验错误，例如不安全路径、冲突或无效状态
 3  IO、锁或原子写失败
 4  未预期内部错误

@@ -10,4 +10,4 @@
 | WikiLink resolver plan | 2026-07-11-obsidian-wikilink-resolution | executed | `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md` | 2026-07-11 |
 | WikiLink Bug Brief | 2026-07-11-obsidian-wikilink-resolution | merged-agent-local | `.llm-wiki/bugs/2026-07-11-obsidian-wikilink-resolution.md` | 2026-07-11 |
 | WikiLink handoff | 2026-07-11-obsidian-wikilink-resolution | current | `.llm-wiki/handoff/2026-07-11-obsidian-wikilink-resolution-handoff.md` | 2026-07-11 |
-| Phase 3 ingest/projection design | obsidian-v02-phase3-ingest-projection | review | `docs/superpowers/specs/2026-07-11-obsidian-llm-wiki-v0.2-phase3-ingest-projection-design.md` | 2026-07-11 |
+| Phase 3 ingest/projection design | obsidian-v02-phase3-ingest-projection | revision-review | `docs/superpowers/specs/2026-07-11-obsidian-llm-wiki-v0.2-phase3-ingest-projection-design.md` | 2026-07-11 |

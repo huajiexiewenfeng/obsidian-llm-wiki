@@ -4,8 +4,9 @@
 
 - 日期：2026-07-11
 - flow_id：`obsidian-v02-phase3-ingest-projection`
-- 状态：设计已在对话中确认，书面规格待用户复审
-- 前置：v0.2 Phase 2 状态契约与安全写入已合入
+- 状态：设计已在对话中确认；根据用户评审修订，书面规格待再次复审
+- 本地集成链：分支 `main`，必须包含 Phase 2 merge `e30f59f` 与首版 Phase 3 设计 `f5542fe`
+- 远端公开基线：`origin/main@c5c6543` 尚未包含 Phase 2；实施必须基于包含 `e30f59f` 的本地集成链，或等待其推送/合并后再开始
 - 后续：Phase 4 Doctor 状态一致性检查、v0.3 Inventory
 
 ## 目标
@@ -20,6 +21,7 @@ Phase 3 交付第一条完整、可靠的 Obsidian LLM Wiki 摄入链路：Skill
 - 不在 Core 内调用模型、生成摘要或决定知识分类。
 - 不实现自动 migration、Context Pack、附件/嵌入/块引用语法。
 - 不复制、移动或删除原始来源。
+- 不在本 Flow 实现用户确认后的 `archive-import` 二进制复制；该能力拆为 Phase 3.1 子 Flow，并且必须在 v0.2 发布前恢复，不能静默推迟到 v0.3。
 - 不自动接管缺少托管 marker 的既有 Markdown。
 - 不建立通用事务 DSL。
 
@@ -30,6 +32,8 @@ Phase 3 交付第一条完整、可靠的 Obsidian LLM Wiki 摄入链路：Skill
 3. takeover 在 payload 中按页面 mutation 或投影相对路径逐项声明；不提供全局 takeover。
 4. 所有写命令默认 dry-run，必须使用相同 payload、`--confirm` 和预览返回的 `--plan-checksum` 才能写入。
 5. 使用专用 coordinator：`ingest.py`、`page.py`、`projection.py`；复用 Phase 2 primitives，不由 CLI 直接编排事务。
+6. 退出码 `1` 统一表示可预期的未执行状态；`confirmation-required`、`missing-config` 等具体原因由 JSON `status`/`check` 字段区分。
+7. 本 Flow 的 `ingest apply` 只接受 `path-index` 和 `summary-ingest`；`archive-import` 的 schema 与原子二进制复制由 Phase 3.1 子 Flow 设计。
 
 ## 架构
 
@@ -68,13 +72,14 @@ skills/obsidian-wiki-runtime/scripts/
   "source": {
     "path": "<confirmed-source-path>",
     "source_type": "markdown",
-    "mode": "summary",
+    "mode": "summary-ingest",
     "fingerprint": {
       "size": 1024,
       "mtime_ns": 1783658400000000000
     },
     "checksum": "sha256:...",
-    "sensitivity": "normal"
+    "sensitivity": "normal",
+    "move_resolution": null
   },
   "pages": [
     {
@@ -104,11 +109,14 @@ skills/obsidian-wiki-runtime/scripts/
 - `pages` 必须且只能包含一个 `role: source-proxy`；派生页可以为零到多个。
 - page path 必须是 control-center-relative，规范化后仍位于 control center 内，并且不得重复或 case-fold 冲突。
 - payload 不包含原始来源正文，只包含已生成的托管 Markdown；Core 不持久化原始 payload。
+- 本 Flow 的合法 source mode 为 `path-index`、`summary-ingest`；`archive-import` 返回 `unsupported-mode`，直到 Phase 3.1 子 Flow 交付。
 - source/page ID 由 Core 根据 registry 与稳定身份规则解析，Agent 不自行指定新 ID。
 - 更新既有托管页面必须提供 `expected_managed_checksum`；缺失或不匹配时返回 conflict。
 - 既有无 marker 页面只有在对应 mutation 中 `takeover: true` 时才能接管。
 - 投影内容不由 payload 提供；`projection_takeovers` 只列出明确允许首次创建 marker 的投影相对路径。
 - 未知字段、未知 schema、非法 page type、非法 sensitivity 或缺少必填字段均返回 validation error。
+
+更新既有页面时，Skill 不直接读取 `pages.json` 来发明并发控制逻辑。首次 dry-run 如果 `expected_managed_checksum` 缺失或不匹配，Core 返回 conflict，并在对应 page result 中提供 `current_managed_checksum`、`registry_managed_checksum` 和不含正文的 `resolution_hint`。Agent 随后读取并核对目标页的当前托管区，向用户展示变化，回填 payload 后重新 dry-run。Core 不在错误响应中返回 `managed_body`。
 
 `PageApplyPayload` 使用相同 page mutation 数组，但不含 source；`ProjectionRebuildPayload` 只包含 schema 与逐路径 takeover 清单。三个命令共享 payload loader 和规范化规则。
 
@@ -118,10 +126,26 @@ Core 先按 canonical path/case-fold key 查找既有 source：
 
 - 同一路径、相同 checksum：复用 source ID，可能得到 unchanged。
 - 同一路径、不同 checksum：更新同一 source revision，不创建新 source。
-- 新路径、checksum 与已有 source 相同：返回 move candidate conflict，等待用户确认重新绑定，不自动合并。
+- 新路径、checksum 与已有 source 相同：没有 resolution 时返回 move candidate conflict，并返回候选 source IDs；不自动合并。
 - 无匹配：创建新稳定 source ID。
 
 page ID 按现有 page registry 与规范化目标路径解析；路径已有 page 记录时复用 ID，新路径创建稳定 ID。页面移动、删除和重命名不在本阶段自动处理。
+
+`source.move_resolution` 只在 move candidate 场景允许：
+
+```json
+{"action": "rebind", "source_id": "src-existing"}
+```
+
+或：
+
+```json
+{"action": "new-source"}
+```
+
+- `rebind` 必须指定 dry-run 返回的候选 source ID，重新核对 checksum，并且候选旧路径必须已经不存在；否则返回 `source-copy-not-move`，要求选择 `new-source`。
+- `new-source` 明确创建新的 source ID，即使 checksum 与已有记录相同，用于真实复制件或用户决定保持两个独立来源。
+- resolution 会进入规范化 payload、plan checksum、idempotency key 和 change-log 审计摘要。
 
 `idempotency_key` 由目标 control center 身份、source ID、source checksum、规范化 page mutation checksum 与投影目标集合确定性生成。completed change-log event 必须保存该 key、operation ID、record IDs 和结果摘要。相同 key 已完成时返回原结果，不创建新 operation、不重写页面、不追加重复完成事件。
 
@@ -144,6 +168,8 @@ dry-run 不获取写锁，不创建 operation、目录、临时文件或审计�
 - `plan_checksum` 与 `idempotency_key`
 - source 的 create/update/unchanged/move-conflict
 - 每个页面的 create/update/unchanged/conflict
+- checksum conflict 的 `current_managed_checksum`、`registry_managed_checksum` 与 `resolution_hint`
+- move candidate 的候选 source IDs 与允许的 resolution actions
 - 每个投影的 create/update/unchanged/conflict
 - takeover 清单
 - registry 和目标文件的预期旧 checksum
@@ -225,13 +251,15 @@ projection rebuild
 
 ```text
 0  成功、幂等命中或确认后的 unchanged
-1  计划可确认但尚未提供 --confirm
+1  可预期的未执行状态；JSON status/check 区分 confirmation-required、missing-config、disabled-config、multiple-roots 等原因
 2  payload、路径、checksum、marker、takeover 或 plan conflict
 3  IO、锁、原子写或可诊断的部分写入失败
 4  未预期内部错误
 ```
 
 根目录 `scripts/llm_wiki.py` 继续是 compatibility launcher；所有实现只进入 installable shared runtime。
+
+成功 dry-run 的 JSON 使用 `status: confirmation-required`、`confirmation_required: true` 和 `confirmable: true`。它返回退出码 `1`，与现有 `state init` 行为一致；调用方不得只凭退出码猜测具体未执行原因。
 
 ## Skill 流程
 
@@ -259,7 +287,18 @@ Skill 不直接修改 registry、页面或投影，也不在 Core 持锁期间�
 - 错误和 JSON 输出不得回显完整 `managed_body` 或敏感来源正文。
 - stdin 模式允许敏感生成内容不落临时 payload 文件；Core 不保存原始 payload。
 - 不提供全局 takeover、blind overwrite 或无 checksum 更新。
-- 不自动复制到 `raw/`，不删除来源，不删除用户区域。
+- 本 Flow 不复制到 `raw/`，不删除来源，不删除用户区域；用户确认后的 archive import 由 Phase 3.1 子 Flow 交付。
+
+## Archive Import 交付边界
+
+当前 README 和 Ingest Skill 已公开 `archive-import`，因此该能力不能无说明地丢失或推迟到 v0.3。本 Flow 暂不实现它，是因为可靠归档还需要独立解决：
+
+- `SourceRecord` 如何同时表达外部原路径与 Vault 内归档路径；
+- 大文件的流式 checksum、同目录临时文件和原子二进制 replace；
+- `raw/` 目标冲突、空间不足、中断残留和 symlink 边界；
+- Inventory 扫描 `raw/` 时如何避免把已归档副本再次识别为新来源。
+
+这些内容应建立为 Phase 3.1 子 Flow，并在 v0.2 tag 前实施。Phase 3 基础命令对 `archive-import` 返回结构化 `unsupported-mode`，README 与 Skill 在 v0.2 发布说明中必须指向 Phase 3.1；不得退回无审计的直接文件复制。
 
 ## 测试策略
 
@@ -267,7 +306,7 @@ Skill 不直接修改 registry、页面或投影，也不在 Core 持锁期间�
 
 - schema、必填字段、未知字段、单 proxy 约束、重复路径、case-fold 冲突。
 - file/stdin 等价。
-- canonical path、路径越界、source checksum/fingerprint、move candidate。
+- canonical path、路径越界、source checksum/fingerprint、move candidate、rebind/new-source resolution。
 
 ### Planner
 
@@ -275,6 +314,7 @@ Skill 不直接修改 registry、页面或投影，也不在 Core 持锁期间�
 - registry、文件、source 或 payload 漂移改变 plan checksum。
 - dry-run 零写入。
 - create/update/unchanged/conflict/takeover 分类完整。
+- checksum conflict 返回当前值和安全 resolution hint，不返回 managed body。
 
 ### 页面与投影
 
@@ -310,6 +350,8 @@ Skill 不直接修改 registry、页面或投影，也不在 Core 持锁期间�
 8. 每个注入失败点都产生可诊断 operation，不假装全量回滚。
 9. canonical runtime 和根 launcher 行为一致。
 10. Phase 3 不包含 Inventory、自动发现或 migration。
+11. move candidate 可以通过显式 rebind 或 new-source resolution 解除，不存在无法执行的确认死路。
+12. source mode 与 Phase 2 schema 对齐；archive-import 明确由 v0.2 Phase 3.1 子 Flow 交付。
 
 ## 后续关系
 

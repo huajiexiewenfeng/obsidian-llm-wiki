@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | `obsidian-v02-phase2-state-layer` | requirement | done | `requirements/obsidian-v02-phase2-state-layer.md` | `handoff/obsidian-v02-phase2-state-layer-handoff.md` |
 | `2026-07-11-obsidian-wikilink-resolution` | bug | verified-agent-local | `bugs/2026-07-11-obsidian-wikilink-resolution.md` | `handoff/2026-07-11-obsidian-wikilink-resolution-handoff.md` |
-| `obsidian-v02-phase3-ingest-projection` | requirement | design-review | `requirements/obsidian-v02-phase3-ingest-projection.md` | pending |
+| `obsidian-v02-phase3-ingest-projection` | requirement | design-revision-review | `requirements/obsidian-v02-phase3-ingest-projection.md` | pending |
 
 ## Entry Points
 

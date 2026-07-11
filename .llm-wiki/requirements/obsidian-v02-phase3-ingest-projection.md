@@ -11,6 +11,7 @@
 - 总体设计：`docs/superpowers/specs/2026-07-10-obsidian-llm-wiki-v0.2-design.md`
 - Phase 3 设计：`docs/superpowers/specs/2026-07-11-obsidian-llm-wiki-v0.2-phase3-ingest-projection-design.md`
 - 前置 Flow：`obsidian-v02-phase2-state-layer`
+- 实施基线：本地 `main` 必须包含 Phase 2 merge `e30f59f` 与首版设计 `f5542fe`；`origin/main@c5c6543` 尚未包含 Phase 2
 - 后续依赖：v0.2 Phase 4 Doctor 状态一致性检查、v0.3 Inventory
 
 ## 目标
@@ -22,7 +23,7 @@
 - active: `ingest apply`、单 source proxy 与多个派生知识页、必要的 `page apply`/`projection rebuild` 内部或公开契约、source/page registry 更新、幂等与失败状态、托管投影、CLI/Skill/测试/文档
 - read-only: Root Resolver、Phase 2 state/writer/managed 基础、Doctor 当前行为、Inventory 已确认的 sources registry 依赖
 - candidate: none
-- excluded: v0.3 Inventory、自动 migration、Context Pack、Doctor Phase 4 迁移、模型总结算法、原始来源复制、页面删除/移动/重命名
+- excluded: v0.3 Inventory、自动 migration、Context Pack、Doctor Phase 4 迁移、模型总结算法、页面删除/移动/重命名；archive-import 原子复制拆为 v0.2 Phase 3.1 子 Flow
 
 ## 初始验收
 
@@ -39,7 +40,7 @@
 
 - active_plan:
 - status: none
-- evidence: 对话设计已确认；书面设计已生成并完成自审，待用户复审
+- evidence: 对话设计已确认；书面设计已按用户评审修订并完成第二轮自审，待再次复审
 
 ## 外部依赖
 
@@ -55,7 +56,7 @@
 | Step | Status | Evidence | Updated |
 |---|---|---|---|
 | source | done | v0.2 总体设计、Phase 2 handoff、Inventory 实施依赖 | 2026-07-11 |
-| design | active | 书面设计 `docs/superpowers/specs/2026-07-11-obsidian-llm-wiki-v0.2-phase3-ingest-projection-design.md` 待用户复审 | 2026-07-11 |
+| design | active | 书面设计已按 6 项评审意见修订，待用户再次复审 | 2026-07-11 |
 | plan | pending |  |  |
 | development | pending |  |  |
 | testing | pending |  |  |
@@ -63,7 +64,7 @@
 
 ## 待确认问题
 
-- 用户复审书面设计后，才能进入实施计划。
+- 用户再次复审修订后的书面设计后，才能进入实施计划。
 
 ## 已确认决策
 
@@ -72,6 +73,10 @@
 - takeover 在 payload 中按具体 page mutation 或 projection 相对路径逐项声明；未显式声明的既有无 marker 文件返回 conflict，不提供全局 takeover 开关。
 - `ingest apply` 默认执行完整预检并零写入；只有同一 payload 加 `--confirm` 才进入写事务，payload 内字段不能替代 CLI 确认。
 - Phase 3 新建专用 `llm_wiki_core/ingest.py`：纯 planner 负责校验和变更计划，coordinator 负责锁内执行；`writer.py` 保持通用 primitive 边界，CLI 不直接编排事务，也不提前抽象通用 transaction engine。
+- 退出码 `1` 保持与现有 state init 一致，表示可预期未执行；具体原因读取 JSON status/check。
+- move candidate 由 payload `move_resolution` 的 `rebind`/`new-source` 显式解除。
+- checksum conflict 由 dry-run 返回当前 checksum 与安全提示，Agent 核对页面后回填 payload。
+- 本 Flow 只接受 `path-index`、`summary-ingest`；`archive-import` 由 v0.2 Phase 3.1 子 Flow 交付。
 
 ## 验证计划
 
