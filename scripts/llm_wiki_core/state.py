@@ -164,6 +164,47 @@ class PageRecord:
         return record
 
 
+@dataclass(frozen=True)
+class OperationRecord:
+    operation_id: str
+    idempotency_key: str
+    kind: str
+    record_ids: tuple[str, ...]
+    current_step: str
+    status: str
+    started_at: str
+    updated_at: str
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        payload = asdict(self)
+        payload["record_ids"] = list(self.record_ids)
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "OperationRecord":
+        record_ids = payload.get("record_ids")
+        if not isinstance(record_ids, list) or not all(isinstance(item, str) for item in record_ids):
+            raise StateValidationError("record_ids must be a string array")
+        status = require_string(payload.get("status"), "status")
+        if status not in {"running", "completed", "failed"}:
+            raise StateValidationError("operation status is invalid")
+        error_value = payload.get("error")
+        if error_value is not None and not isinstance(error_value, str):
+            raise StateValidationError("operation error must be a string or null")
+        return cls(
+            operation_id=require_string(payload.get("operation_id"), "operation_id"),
+            idempotency_key=require_string(payload.get("idempotency_key"), "idempotency_key"),
+            kind=require_string(payload.get("kind"), "kind"),
+            record_ids=tuple(record_ids),
+            current_step=require_string(payload.get("current_step"), "current_step"),
+            status=status,
+            started_at=require_string(payload.get("started_at"), "started_at"),
+            updated_at=require_string(payload.get("updated_at"), "updated_at"),
+            error=error_value,
+        )
+
+
 def empty_registry() -> dict[str, object]:
     return {"schema_version": SCHEMA_VERSION, "records": {}}
 
