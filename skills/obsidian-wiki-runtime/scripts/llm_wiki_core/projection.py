@@ -1,15 +1,83 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
 from .managed import ManagedConflict, replace_projection_region
-from .state import PageRecord, SourceRecord, ensure_within
-from .writer import file_text_checksum
+from .state import (
+    PageRecord,
+    SourceRecord,
+    decode_page_registry,
+    decode_source_registry,
+    ensure_within,
+)
+from .writer import (
+    VaultLock,
+    atomic_write_text,
+    begin_operation,
+    file_text_checksum,
+    read_json_object,
+    update_operation,
+)
 
 PROJECTION_PATHS = ("wiki/index.md", "ingest/index.md", "wiki/log.md")
+
+
+@dataclass(frozen=True)
+class ProjectionRebuildPayload:
+    schema_version: int
+    projection_takeovers: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ProjectionRebuildPlan:
+    control_center: Path
+    projections: tuple["ProjectionPlan", ...]
+    plan_checksum: str
+    confirmable: bool
+
+    def to_public_dict(self) -> dict[str, object]:
+        return {
+            "control_center": str(self.control_center),
+            "projections": [item.to_public_dict() for item in self.projections],
+            "plan_checksum": self.plan_checksum,
+            "confirmable": self.confirmable,
+            "confirmation_required": self.confirmable,
+        }
+
+
+@dataclass(frozen=True)
+class ProjectionRebuildResult:
+    status: str
+    operation_id: str
+
+
+def _checksum(payload: Mapping[str, object]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def load_projection_rebuild_payload(text: str) -> ProjectionRebuildPayload:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError("payload must be valid JSON") from error
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    unknown = sorted(set(payload) - {"schema_version", "projection_takeovers"})
+    if unknown:
+        raise ValueError(f"payload has unknown fields: {', '.join(unknown)}")
+    if payload.get("schema_version") != 1:
+        raise ValueError("schema_version must be 1")
+    takeovers = payload.get("projection_takeovers")
+    if not isinstance(takeovers, list) or not all(isinstance(item, str) for item in takeovers):
+        raise ValueError("projection_takeovers must be a string array")
+    if any(item not in PROJECTION_PATHS for item in takeovers):
+        raise ValueError("projection_takeovers contains an invalid path")
+    return ProjectionRebuildPayload(1, tuple(sorted(set(takeovers))))
 
 
 def read_change_events(path: Path) -> tuple[dict[str, object], ...]:
@@ -158,3 +226,94 @@ def plan_projections(
             )
         )
     return tuple(plans)
+
+
+def plan_projection_rebuild(
+    control_center: Path, payload: ProjectionRebuildPayload
+) -> ProjectionRebuildPlan:
+    control_center = control_center.resolve()
+    meta = control_center / ".meta"
+    sources = decode_source_registry(read_json_object(meta / "sources.json"))
+    pages = decode_page_registry(read_json_object(meta / "pages.json"))
+    events = read_change_events(meta / "change-log.jsonl")
+    projections = plan_projections(
+        control_center,
+        sources,
+        pages,
+        events,
+        payload.projection_takeovers,
+    )
+    public = [item.to_public_dict() for item in projections]
+    confirmable = all(item.action != "conflict" for item in projections)
+    plan_checksum = _checksum(
+        {
+            "control_center": control_center.as_posix(),
+            "projections": public,
+            "confirmable": confirmable,
+        }
+    )
+    return ProjectionRebuildPlan(control_center, projections, plan_checksum, confirmable)
+
+
+def apply_projection_rebuild(
+    control_center: Path,
+    payload: ProjectionRebuildPayload,
+    confirmed_plan_checksum: str,
+) -> ProjectionRebuildResult:
+    control_center = control_center.resolve()
+    meta = control_center / ".meta"
+    operations_path = meta / "operations.json"
+    with VaultLock(
+        meta / "lock.json",
+        allowed_root=control_center,
+        command="projection rebuild",
+        target=control_center,
+    ):
+        plan = plan_projection_rebuild(control_center, payload)
+        if plan.plan_checksum != confirmed_plan_checksum:
+            raise ValueError("plan-conflict: confirmed plan checksum changed")
+        if not plan.confirmable:
+            raise ValueError("projection-conflict: plan is not confirmable")
+        operation = begin_operation(
+            operations_path,
+            allowed_root=control_center,
+            kind="projection-rebuild",
+            idempotency_key=plan.plan_checksum,
+            record_ids=[],
+            reuse_completed=False,
+        )
+        try:
+            update_operation(
+                operations_path,
+                operation.operation_id,
+                allowed_root=control_center,
+                status="running",
+                current_step="write-projections",
+            )
+            for projection in plan.projections:
+                if projection.action == "unchanged":
+                    continue
+                atomic_write_text(
+                    control_center / projection.relative_path,
+                    projection.rendered_text,
+                    allowed_root=control_center,
+                    expected_checksum=projection.expected_file_checksum,
+                )
+            update_operation(
+                operations_path,
+                operation.operation_id,
+                allowed_root=control_center,
+                status="completed",
+                current_step="complete",
+            )
+            return ProjectionRebuildResult("completed", operation.operation_id)
+        except BaseException as error:
+            update_operation(
+                operations_path,
+                operation.operation_id,
+                allowed_root=control_center,
+                status="failed",
+                current_step="write-projections",
+                error=str(error),
+            )
+            raise

@@ -274,5 +274,48 @@ class IngestApplyCliTests(unittest.TestCase):
         self.assertNotIn("SECRET-GENERATED-BODY", applied.stdout)
 
 
+class PageAndProjectionCliTests(unittest.TestCase):
+    def test_page_apply_then_projection_rebuild(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault = make_vault(base)
+            self.assertEqual(run_cli("state", "init", "--root", str(vault), "--confirm").returncode, 0)
+            page_payload = {
+                "schema_version": 1,
+                "pages": [{
+                    "role": "derived",
+                    "page_type": "topic",
+                    "path": "wiki/topics/cli.md",
+                    "managed_body": "# CLI topic",
+                    "expected_managed_checksum": None,
+                    "takeover": False,
+                }],
+                "projection_takeovers": ["wiki/index.md", "wiki/log.md"],
+            }
+            page_path = write(base / "page.json", json.dumps(page_payload))
+            preview = run_cli("page", "apply", "--root", str(vault), "--payload", str(page_path))
+            applied = run_cli(
+                "page", "apply", "--root", str(vault), "--payload", str(page_path),
+                "--confirm", "--plan-checksum", json.loads(preview.stdout)["plan_checksum"],
+            )
+            rebuild_payload = write(
+                base / "rebuild.json",
+                '{"schema_version":1,"projection_takeovers":[]}',
+            )
+            rebuild_preview = run_cli(
+                "projection", "rebuild", "--root", str(vault), "--payload", str(rebuild_payload)
+            )
+            rebuilt = run_cli(
+                "projection", "rebuild", "--root", str(vault), "--payload", str(rebuild_payload),
+                "--confirm", "--plan-checksum", json.loads(rebuild_preview.stdout)["plan_checksum"],
+            )
+
+        self.assertEqual(preview.returncode, 1, preview.stderr)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertEqual(rebuild_preview.returncode, 1, rebuild_preview.stderr)
+        self.assertTrue(all(item["action"] == "unchanged" for item in json.loads(rebuild_preview.stdout)["projections"]))
+        self.assertEqual(rebuilt.returncode, 0, rebuilt.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

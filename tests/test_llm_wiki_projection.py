@@ -8,6 +8,9 @@ RUNTIME_SCRIPTS = REPO_ROOT / "skills" / "obsidian-wiki-runtime" / "scripts"
 sys.path.insert(0, str(RUNTIME_SCRIPTS))
 
 from llm_wiki_core.projection import (
+    apply_projection_rebuild,
+    load_projection_rebuild_payload,
+    plan_projection_rebuild,
     plan_projections,
     read_change_events,
     render_ingest_index,
@@ -108,6 +111,32 @@ class ProjectionRendererTests(unittest.TestCase):
         log = next(plan for plan in plans if plan.relative_path == "wiki/log.md")
         self.assertIn("prospective", log.rendered_text)
         self.assertNotIn("rendered_text", log.to_public_dict())
+
+    def test_projection_rebuild_payload_is_strict_and_apply_is_deterministic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp) / "control"
+            meta = control / ".meta"
+            meta.mkdir(parents=True)
+            for name in ("sources.json", "pages.json", "operations.json"):
+                (meta / name).write_text(
+                    '{"schema_version":1,"records":{}}', encoding="utf-8"
+                )
+            (meta / "change-log.jsonl").write_bytes(b"")
+            payload = load_projection_rebuild_payload(
+                '{"schema_version":1,"projection_takeovers":[]}'
+            )
+
+            first = plan_projection_rebuild(control, payload)
+            result = apply_projection_rebuild(control, payload, first.plan_checksum)
+            second = plan_projection_rebuild(control, payload)
+
+        self.assertEqual(result.status, "completed")
+        self.assertTrue(all(item.action == "unchanged" for item in second.projections))
+
+        with self.assertRaisesRegex(ValueError, "unknown fields"):
+            load_projection_rebuild_payload(
+                '{"schema_version":1,"projection_takeovers":[],"source":{}}'
+            )
 
 
 if __name__ == "__main__":
