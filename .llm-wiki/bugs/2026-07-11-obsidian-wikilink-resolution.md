@@ -3,7 +3,7 @@
 ## Summary
 
 - title: Obsidian Wiki Doctor incorrectly reports valid WikiLinks as broken
-- status: planned
+- status: verified
 - flow_id: 2026-07-11-obsidian-wikilink-resolution
 - severity: high
 - owner: Codex
@@ -16,7 +16,7 @@
 - secondary_bridges: systematic-debugging, brainstorming, test-driven-development
 - confidence: high
 - reason: The production resolver disagrees with Obsidian Vault-root and dotted-filename semantics.
-- next_gate: user review of approved design record
+- next_gate: external review or Phase 3 planning
 - routed_at: 2026-07-11
 
 ## Source
@@ -50,7 +50,7 @@ WikiLink resolution should follow Obsidian-oriented rules: explicit relative lin
 
 ## Scope
 
-- active: `scripts/obsidian_wiki_doctor.py`, `tests/test_obsidian_wiki_doctor.py`
+- active: `skills/obsidian-wiki-runtime/scripts/obsidian_wiki_doctor.py`, `tests/test_obsidian_wiki_doctor.py`
 - read_only: root resolution model and existing Doctor design docs
 - candidate: none
 - excluded: Vault discovery, sensitive redaction, scoring, Maintain behavior
@@ -62,30 +62,37 @@ The resolver models path-bearing WikiLinks as source-relative paths and uses Pyt
 
 ## Fix Plan
 
-Implement the approved resolver order and add regression tests before production changes. Keep Markdown-link behavior unchanged.
+Follow `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md`: add failing regression tests, implement the approved resolver order, run the full suite and real Vault verification, then sync verified evidence. Keep Markdown-link behavior unchanged.
 
 ## Verification
 
-- status: not-run
-- commands_or_checks: targeted unittest, full unittest suite, real Vault Doctor validation
-- result_summary:
-- limitation:
-- residual_risk: Ambiguous duplicate basenames must remain unresolved rather than guessed.
+- status: passed
+- commands_or_checks: 20 targeted Doctor validation tests; full unittest discovery; canonical runtime Doctor validation against the current Vault
+- result_summary: All 101 tests passed with 2 environment-gated skips. Real Vault validation reports zero broken index links; the sole remaining internal link has no Vault candidate and is a genuine missing relative target.
+- limitation: Windows symlink coverage and opt-in Skills CLI integration were skipped; the installed user-skill cache is not updated by this source merge.
+- residual_risk: Obsidian syntax outside the approved scope remains unchanged; ambiguous duplicate basenames intentionally remain unresolved.
+- executor: agent-local
+- authority: agent-local
+- raw_output_ref: current Codex task RED, GREEN, full unittest, and real Vault command outputs
+- test_integrity: six real CLI tests added, existing exact-case regression preserved, ambiguous fixture made Windows-portable; no assertions weakened; over-mocking risk low
 
 ## Flow Record
 
 | Step | Status | Evidence | Updated |
 |---|---|---|---|
 | source | done | User report and real Vault Doctor output | 2026-07-11 |
-| design | done | Approved resolver design | 2026-07-11 |
-| plan | pending |  |  |
-| development | pending |  |  |
-| testing | pending |  |  |
-| archive | pending |  |  |
+| design | done | Approved Chinese resolver design | 2026-07-11 |
+| plan | done | `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md` | 2026-07-11 |
+| development | done | Resolver commit `d0ab175` integrated into canonical shared runtime on local `main` | 2026-07-11 |
+| testing | active | 101 agent-local tests and real Vault canonical-runtime verification; awaiting CI or review | 2026-07-11 |
+| archive | done | `.llm-wiki/handoff/2026-07-11-obsidian-wikilink-resolution-handoff.md` | 2026-07-11 |
 
 ## Artifacts
 
 - `docs/superpowers/specs/2026-07-11-obsidian-wikilink-resolution-design.md`
+- `docs/superpowers/plans/2026-07-11-obsidian-wikilink-resolution-implementation-plan.md`
+- `.llm-wiki/handoff/2026-07-11-obsidian-wikilink-resolution-handoff.md`
+- `.llm-wiki/artifacts/index.md`
 
 ## Open Questions
 

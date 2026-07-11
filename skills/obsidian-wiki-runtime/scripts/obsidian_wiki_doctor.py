@@ -184,22 +184,81 @@ def resolve_markdown_link(source: Path, target: str) -> Path | None:
     return resolve_link_candidate(source, markdown_link_target(target))
 
 
-def resolve_wikilink(source: Path, target: str, wiki_root: Path | None = None) -> Path | None:
-    link_target = obsidian_link_target(target)
-    resolved = resolve_link_candidate(source, link_target)
-    if resolved is None or resolved.exists() or "/" in link_target or "\\" in link_target or wiki_root is None:
-        return resolved
+def wikilink_candidate_paths(base: Path) -> list[Path]:
+    candidates = [base]
+    if not base.name.lower().endswith(".md"):
+        candidates.append(Path(f"{base}.md"))
+    candidates.append(base / "index.md")
+    return candidates
 
-    basename = Path(link_target).with_suffix(".md").name if Path(link_target).suffix == "" else Path(link_target).name
-    markdown_files = [path.resolve() for path in iter_markdown_files(wiki_root)]
-    exact_matches = sorted(path for path in markdown_files if path.name == basename)
+
+def resolve_wikilink_base(base: Path) -> Path:
+    candidates = wikilink_candidate_paths(base.resolve())
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def build_markdown_name_index(root: Path | None) -> dict[str, tuple[Path, ...]]:
+    if root is None or not root.is_dir():
+        return {}
+    grouped: dict[str, list[Path]] = {}
+    for path in iter_markdown_files(root):
+        grouped.setdefault(path.name.casefold(), []).append(path.resolve())
+    return {name: tuple(sorted(paths)) for name, paths in grouped.items()}
+
+
+def resolve_wikilink(
+    source: Path,
+    target: str,
+    vault_root: Path | None = None,
+    wiki_root: Path | None = None,
+    basename_index: dict[str, tuple[Path, ...]] | None = None,
+) -> Path | None:
+    link_target = obsidian_link_target(target)
+    if not link_target or link_target.startswith("#"):
+        return None
+    if re.match(r"(?i)^[a-z][a-z0-9+.-]*:", link_target) or link_target.startswith("//"):
+        return None
+
+    normalized_target = link_target.replace("\\", "/")
+    target_path = Path(normalized_target)
+    explicit_relative = normalized_target.startswith("./") or normalized_target.startswith("../")
+    has_directory = "/" in normalized_target
+
+    if explicit_relative:
+        return resolve_wikilink_base(source.parent / target_path)
+
+    if has_directory:
+        roots: list[Path] = []
+        for root in (vault_root, wiki_root):
+            if root is not None and root not in roots:
+                roots.append(root)
+        unresolved: Path | None = None
+        for root in roots:
+            candidate = resolve_wikilink_base(root / target_path)
+            if candidate.exists():
+                return candidate
+            if unresolved is None:
+                unresolved = candidate
+        return unresolved or resolve_wikilink_base(source.parent / target_path)
+
+    source_candidate = resolve_wikilink_base(source.parent / target_path)
+    if source_candidate.exists():
+        return source_candidate
+
+    expected_name = target_path.name
+    if not expected_name.lower().endswith(".md"):
+        expected_name = f"{expected_name}.md"
+    lookup = basename_index if basename_index is not None else build_markdown_name_index(vault_root or wiki_root)
+    matches = lookup.get(expected_name.casefold(), ())
+    exact_matches = tuple(path for path in matches if path.name == expected_name)
     if len(exact_matches) == 1:
         return exact_matches[0]
-
-    matches = sorted(path for path in markdown_files if path.name.lower() == basename.lower())
     if len(matches) == 1:
         return matches[0]
-    return resolved
+    return source_candidate
 
 
 def table_dicts(text: str) -> list[dict[str, str]]:
@@ -256,11 +315,24 @@ def check_links(root: ResolvedRoot) -> list[Finding]:
     if root.wiki_root is None:
         return []
 
+    basename_index = build_markdown_name_index(root.vault_root or root.wiki_root)
     findings: list[Finding] = []
     for markdown_file in iter_markdown_files(root.wiki_root):
         text = read_text(markdown_file)
         link_targets = [(match.group(1), resolve_markdown_link(markdown_file, match.group(1))) for match in MARKDOWN_LINK_RE.finditer(text)]
-        link_targets.extend((match.group(1), resolve_wikilink(markdown_file, match.group(1), root.wiki_root)) for match in WIKILINK_RE.finditer(text))
+        link_targets.extend(
+            (
+                match.group(1),
+                resolve_wikilink(
+                    markdown_file,
+                    match.group(1),
+                    vault_root=root.vault_root,
+                    wiki_root=root.wiki_root,
+                    basename_index=basename_index,
+                ),
+            )
+            for match in WIKILINK_RE.finditer(text)
+        )
         for target, resolved in link_targets:
             if resolved is None or resolved.exists():
                 continue
