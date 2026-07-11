@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  PYTHONUTF8: "1"
+
 jobs:
   python-tests:
     strategy:
@@ -28,3 +31,22 @@ jobs:
           Set-Content -Encoding utf8 -Path (Join-Path $vault "00-知识库中控/wiki/index.md") -Value "# Index"
           Set-Content -Encoding utf8 -Path (Join-Path $vault "00-知识库中控/wiki/log.md") -Value "# Log"
           python scripts/llm_wiki.py root resolve --root $vault --format json
+
+  skills-cli-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install skills and run installed runtime
+        env:
+          RUN_SKILLS_CLI_INTEGRATION: "1"
+        run: python -m unittest tests.test_skills_cli_install -v

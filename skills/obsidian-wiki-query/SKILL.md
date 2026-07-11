@@ -6,9 +6,27 @@ description: Use this whenever the user asks questions that should be answered f
 
 ## First-Use Vault Setup
 
-Treat root configuration as background setup, not a JSON-file task for the user. If normal resolution has no root, run `python scripts/llm_wiki.py root discover --format json`. Show returned existing absolute paths as numbered candidates and ask the user to select one or provide another absolute Vault path. Resolve the selected path and state `vault_root`, `control_center`, and `wiki_root`. Only after the user confirms it should become the default, run `root configure --root <path> --activate --confirm`.
+Treat root configuration as background setup, not a JSON-file task for the user. If normal resolution has no root, run `python "<runtime-script>" root discover --format json`. Show returned existing absolute paths as numbered candidates and ask the user to select one or provide another absolute Vault path. Resolve the selected path and state `vault_root`, `control_center`, and `wiki_root`. Only after the user confirms it should become the default, run `root configure --root <path> --activate --confirm`.
 
 Do not read note content or scan the whole disk during discovery. Continue the user's original request after setup succeeds.
+## Runtime Resolution
+
+Before running any command, resolve this skill's `SKILL.md` directory, take its
+parent as `<skills-root>`, and set:
+
+```text
+<runtime-script> = <skills-root>/obsidian-wiki-runtime/scripts/llm_wiki.py
+```
+
+Verify that `<runtime-script>` exists, then invoke it by absolute path. If it is
+missing, stop with `missing-runtime`, report the expected path, and recommend:
+
+```text
+npx skills add huajiexiewenfeng/obsidian-llm-wiki --skill '*' --copy --yes
+```
+
+Do not fall back to a repository-relative `scripts/llm_wiki.py` path.
+
 # Obsidian Wiki Query
 
 Answer questions from the Obsidian LLM Wiki.
@@ -45,7 +63,7 @@ Before reading or writing, resolve and state `vault_root`, `control_center`, and
 Do not search the whole disk. Before answering, run or follow the equivalent of:
 
 ```text
-python scripts/llm_wiki.py root resolve --cwd <working-directory> --format json
+python "<runtime-script>" root resolve --cwd <working-directory> --format json
 ```
 
 If a project workspace contains an `index.md` but is not the resolved Obsidian

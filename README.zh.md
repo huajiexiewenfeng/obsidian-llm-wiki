@@ -111,6 +111,14 @@ npx skills add huajiexiewenfeng/obsidian-llm-wiki
 npx skills add .
 ```
 
+完整仓库安装会同时安装共享的 `obsidian-wiki-runtime` 技能。该技能携带根目录解析和 Wiki Doctor 使用的 Python 文件。请安装完整技能集；如果只安装单个工作流技能，其运行时依赖将不可用。
+
+发布前可在本地仓库执行以下命令验证：
+
+```bash
+npx skills add . --skill '*' --agent codex --copy --yes
+```
+
 安装后，重启 Codex 或你的 agent runtime，让 skills 重新被发现。
 
 ### 根目录配置
@@ -205,6 +213,11 @@ skills/
   obsidian-wiki-maintain/
   obsidian-wiki-doctor/
   obsidian-wiki-query/
+  obsidian-wiki-runtime/
+    scripts/
+      llm_wiki.py
+      obsidian_wiki_doctor.py
+      llm_wiki_core/
 
 docs/
   architecture.md
@@ -213,6 +226,7 @@ docs/
   development-plan.md
 
 scripts/
+  llm_wiki.py
   obsidian_wiki_doctor.py
 
 tests/
