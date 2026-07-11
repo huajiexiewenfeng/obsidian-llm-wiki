@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -24,7 +25,11 @@ def make_vault(base: Path) -> Path:
     return vault
 
 
-def run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def run_cli(
+    *args: str,
+    cwd: Path | None = None,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment.pop("OBSIDIAN_LLM_WIKI_ROOT", None)
     return subprocess.run(
@@ -35,6 +40,7 @@ def run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[
         stderr=subprocess.PIPE,
         env=environment,
         check=False,
+        input=input_text,
     )
 
 
@@ -172,6 +178,100 @@ class DefaultVaultCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertTrue(json.loads(result.stdout)["confirmation_required"])
             self.assertFalse(config.exists())
+
+
+def make_ingest_payload(source: Path) -> dict[str, object]:
+    stat = source.stat()
+    checksum = "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest()
+    return {
+        "schema_version": 1,
+        "source": {
+            "path": str(source.resolve()),
+            "source_type": "markdown",
+            "mode": "summary-ingest",
+            "fingerprint": {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns},
+            "checksum": checksum,
+            "sensitivity": "normal",
+            "move_resolution": None,
+        },
+        "pages": [{
+            "role": "source-proxy",
+            "page_type": "source",
+            "path": "wiki/sources/example.md",
+            "managed_body": "SECRET-GENERATED-BODY",
+            "expected_managed_checksum": None,
+            "takeover": False,
+        }],
+        "projection_takeovers": ["wiki/index.md", "wiki/log.md"],
+    }
+
+
+class IngestApplyCliTests(unittest.TestCase):
+    def test_file_and_stdin_dry_run_match_and_write_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault = make_vault(base)
+            init = run_cli("state", "init", "--root", str(vault), "--confirm")
+            self.assertEqual(init.returncode, 0, init.stderr)
+            source = write(base / "source.md", "source")
+            payload_text = json.dumps(make_ingest_payload(source))
+            payload_path = write(base / "payload.json", payload_text)
+
+            from_file = run_cli(
+                "ingest", "apply", "--root", str(vault),
+                "--payload", str(payload_path), "--format", "json",
+            )
+            from_stdin = run_cli(
+                "ingest", "apply", "--root", str(vault),
+                "--payload", "-", "--format", "json", input_text=payload_text,
+            )
+
+            target = vault / "00-知识库中控/wiki/sources/example.md"
+            self.assertFalse(target.exists())
+
+        self.assertEqual(from_file.returncode, 1, from_file.stderr)
+        self.assertEqual(from_stdin.returncode, 1, from_stdin.stderr)
+        file_json = json.loads(from_file.stdout)
+        stdin_json = json.loads(from_stdin.stdout)
+        self.assertEqual(file_json["plan_checksum"], stdin_json["plan_checksum"])
+        self.assertEqual(file_json["status"], "confirmation-required")
+        self.assertTrue(file_json["confirmable"])
+        self.assertNotIn("SECRET-GENERATED-BODY", from_file.stdout)
+
+    def test_confirm_requires_checksum_then_applies_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault = make_vault(base)
+            self.assertEqual(
+                run_cli("state", "init", "--root", str(vault), "--confirm").returncode,
+                0,
+            )
+            source = write(base / "source.md", "source")
+            payload_path = write(base / "payload.json", json.dumps(make_ingest_payload(source)))
+            preview = run_cli(
+                "ingest", "apply", "--root", str(vault), "--payload", str(payload_path)
+            )
+            plan_checksum = json.loads(preview.stdout)["plan_checksum"]
+
+            missing = run_cli(
+                "ingest", "apply", "--root", str(vault),
+                "--payload", str(payload_path), "--confirm",
+            )
+            applied = run_cli(
+                "ingest", "apply", "--root", str(vault),
+                "--payload", str(payload_path), "--confirm",
+                "--plan-checksum", plan_checksum,
+            )
+
+            target = vault / "00-知识库中控/wiki/sources/example.md"
+            target_text = target.read_text(encoding="utf-8")
+
+        self.assertEqual(missing.returncode, 2)
+        self.assertEqual(json.loads(missing.stdout)["error"]["check"], "missing-plan-checksum")
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertEqual(json.loads(applied.stdout)["status"], "completed")
+        self.assertIn("SECRET-GENERATED-BODY", target_text)
+        self.assertNotIn("SECRET-GENERATED-BODY", applied.stdout)
 
 
 if __name__ == "__main__":

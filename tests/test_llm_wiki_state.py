@@ -173,7 +173,6 @@ class Phase2DocumentationTests(unittest.TestCase):
             self.assertIn("state init", text, path)
             self.assertIn(".meta", text, path)
 
-    def test_phase3_commands_are_not_implemented_early(self):
+    def test_inventory_command_is_not_implemented_early(self):
         cli = (RUNTIME_SCRIPTS / "llm_wiki.py").read_text(encoding="utf-8-sig")
-        self.assertNotIn('add_parser("ingest")', cli)
         self.assertNotIn('add_parser("inventory")', cli)
