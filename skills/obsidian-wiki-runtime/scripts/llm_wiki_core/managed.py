@@ -108,7 +108,17 @@ def replace_frontmatter_region(
     *,
     takeover: bool = False,
 ) -> str:
-    frontmatter, body, newline = split_frontmatter(text)
+    try:
+        frontmatter, body, newline = split_frontmatter(text)
+    except ManagedConflict:
+        if not takeover or text.startswith("---"):
+            raise
+        newline = detect_newline(text)
+        managed_fields = encode_frontmatter_fields(fields, newline)
+        return (
+            f"---{newline}{FRONTMATTER_START}{newline}{managed_fields}"
+            f"{FRONTMATTER_END}{newline}---{newline}{text}"
+        )
     updated = replace_region(
         frontmatter + newline,
         encode_frontmatter_fields(fields, newline),
