@@ -181,6 +181,81 @@ class ValidationCheckTests(unittest.TestCase):
             findings = json.loads(result.stdout)
             self.assertNotIn("broken-index-link", {item["check"] for item in findings})
 
+    def test_vault_root_wikilink_is_not_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            control = make_control_center(vault)
+            write(
+                control / "wiki" / "index.md",
+                "# Index\n\n- [[00-知识库中控/wiki/topics/topic|Topic]]\n",
+            )
+
+            result = run_doctor("validate", "--root", str(vault), "--format", "json")
+
+            findings = json.loads(result.stdout)
+            self.assertNotIn("broken-index-link", {item["check"] for item in findings})
+
+    def test_dotted_extensionless_wikilink_is_not_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            control = make_control_center(vault)
+            write(control / "00.知识库地图.md", "# Map\n")
+            write(control / "wiki" / "index.md", "# Index\n\n- [[00.知识库地图]]\n")
+
+            result = run_doctor("validate", "--root", str(vault), "--format", "json")
+
+            findings = json.loads(result.stdout)
+            self.assertNotIn("broken-index-link", {item["check"] for item in findings})
+
+    def test_unique_vault_basename_wikilink_outside_wiki_is_not_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            control = make_control_center(vault)
+            write(vault / "00.整理范围确认.md", "# Scope\n")
+            write(control / "wiki" / "index.md", "# Index\n\n- [[00.整理范围确认]]\n")
+
+            result = run_doctor("validate", "--root", str(vault), "--format", "json")
+
+            findings = json.loads(result.stdout)
+            self.assertNotIn("broken-index-link", {item["check"] for item in findings})
+
+    def test_ambiguous_vault_basename_wikilink_remains_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            control = make_control_center(vault)
+            write(control / "wiki" / "topics" / "Topic.md", "# Topic\n")
+            write(vault / "archive" / "Topic.md", "# Archived Topic\n")
+            write(control / "wiki" / "index.md", "# Index\n\n- [[Topic]]\n")
+
+            result = run_doctor("validate", "--root", str(vault), "--format", "json")
+
+            findings = json.loads(result.stdout)
+            self.assertIn("broken-index-link", {item["check"] for item in findings})
+
+    def test_explicit_relative_wikilink_resolves_from_source_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(
+                control / "wiki" / "projects" / "project.md",
+                "# Project\n\n- [[../topics/topic|Topic]]\n",
+            )
+
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+
+            findings = json.loads(result.stdout)
+            project_findings = [item for item in findings if item["path"] == "projects/project.md"]
+            self.assertNotIn("broken-internal-link", {item["check"] for item in project_findings})
+
+    def test_genuinely_missing_wikilink_remains_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "index.md", "# Index\n\n- [[Missing Topic]]\n")
+
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+
+            findings = json.loads(result.stdout)
+            self.assertIn("broken-index-link", {item["check"] for item in findings})
+
     def test_sensitive_pattern_redacts_secret_like_filename(self):
         with tempfile.TemporaryDirectory() as tmp:
             control = make_control_center(Path(tmp))
