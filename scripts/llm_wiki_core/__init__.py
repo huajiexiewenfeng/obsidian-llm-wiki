@@ -9,6 +9,13 @@ from .root import (
     resolve_explicit_root,
     resolve_root,
 )
+from .managed import (
+    ManagedConflict,
+    managed_checksum,
+    replace_frontmatter_region,
+    replace_managed_body,
+    replace_projection_region,
+)
 from .state import (
     OperationRecord,
     PageRecord,
@@ -30,6 +37,11 @@ __all__ = [
     "DiscoveryResult",
     "ResolvedRoot",
     "RootIssue",
+    "ManagedConflict",
+    "managed_checksum",
+    "replace_frontmatter_region",
+    "replace_managed_body",
+    "replace_projection_region",
     "PageRecord",
     "OperationRecord",
     "SourceRecord",
