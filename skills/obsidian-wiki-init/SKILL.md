@@ -79,15 +79,20 @@ python "<runtime-script>" root resolve --cwd <working-directory> --format json
 1. Confirm the target vault path from context or user instruction.
 2. Check for existing wiki control files.
 3. Create missing control structure conservatively.
-4. Inventory directories and file types.
-5. Classify the vault into practical next-step buckets:
+4. Preview Phase 2 machine state without writing:
+   `python "<runtime-script>" state init --root <vault-or-control-center> --format json`.
+5. Show the `.meta` files that would be created. After explicit confirmation,
+   run the same command with `--confirm`. State initialization alone does not
+   mean any source has been ingested.
+6. Inventory directories and file types.
+7. Classify the vault into practical next-step buckets:
    - high-value / frequently used
    - project material
    - learning material
    - temporary or messy material
    - sensitive or cautious material
    - external-material candidates
-6. Generate or update:
+8. Generate or update:
    - `00-知识库中控/wiki/index.md`
    - `00-知识库中控/wiki/log.md`
    - `00-知识库中控/wiki/AGENTS.md`
@@ -95,11 +100,15 @@ python "<runtime-script>" root resolve --cwd <working-directory> --format json
    - `00.知识库地图.md`
    - `00.整理范围确认.md`
    - `00.LLM Wiki 建设路线图.md`
-7. Do not vendor doctor scripts or deterministic enforcement files into the
-   vault in V0. Use the installed repository skill and `scripts/` tooling.
-8. Recommend running `obsidian-wiki-doctor` after initialization to validate
+9. Do not vendor doctor scripts or deterministic enforcement files into the
+   vault in V0. Use the installed shared runtime.
+10. Recommend running `obsidian-wiki-doctor` after initialization to validate
    the structure and produce a read-only report.
-9. Recommend the first 1-3 ingest candidates and ask which batch to process with `obsidian-wiki-ingest`.
+11. Recommend the first 1-3 ingest candidates and ask which batch to process with `obsidian-wiki-ingest`.
+
+Phase 2 stores machine state under `00-知识库中控/.meta/`. Later phases treat
+`.meta/sources.json` and `.meta/pages.json` as authority; Markdown index and log
+files remain human-readable projections.
 
 ## Output Files
 

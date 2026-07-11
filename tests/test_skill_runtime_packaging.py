@@ -18,6 +18,9 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/obsidian_wiki_doctor.py",
     "scripts/llm_wiki_core/__init__.py",
     "scripts/llm_wiki_core/root.py",
+    "scripts/llm_wiki_core/state.py",
+    "scripts/llm_wiki_core/writer.py",
+    "scripts/llm_wiki_core/managed.py",
 )
 
 

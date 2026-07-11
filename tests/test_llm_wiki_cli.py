@@ -85,6 +85,50 @@ class DoctorCompatibilityTests(unittest.TestCase):
             self.assertEqual(json.loads(new.stdout), json.loads(old.stdout))
 
 
+class StateInitCliTests(unittest.TestCase):
+    def test_preview_writes_nothing_and_returns_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = make_vault(Path(tmp))
+            result = run_cli("state", "init", "--root", str(vault), "--format", "json")
+            self.assertEqual(result.returncode, 1, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["confirmation_required"])
+            self.assertFalse(payload["initialized"])
+            self.assertFalse((vault / "00-知识库中控" / ".meta").exists())
+
+    def test_confirm_creates_state_and_second_run_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = make_vault(Path(tmp))
+            first = run_cli("state", "init", "--root", str(vault), "--confirm", "--format", "json")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            meta = vault / "00-知识库中控" / ".meta"
+            expected = {
+                "schema.json",
+                "sources.json",
+                "pages.json",
+                "operations.json",
+                "change-log.jsonl",
+            }
+            self.assertTrue(expected.issubset({path.name for path in meta.iterdir()}))
+            first_events = (meta / "change-log.jsonl").read_text(encoding="utf-8").splitlines()
+
+            second = run_cli("state", "init", "--root", str(vault), "--confirm", "--format", "json")
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertEqual(json.loads(second.stdout)["create"], [])
+            second_events = (meta / "change-log.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(second_events, first_events)
+
+    def test_invalid_existing_schema_returns_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = make_vault(Path(tmp))
+            meta = vault / "00-知识库中控" / ".meta"
+            meta.mkdir()
+            (meta / "schema.json").write_text('{"schema_version": 99}', encoding="utf-8")
+            result = run_cli("state", "init", "--root", str(vault), "--confirm", "--format", "json")
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)["error"]["check"], "invalid-state")
+
+
 class DefaultVaultCliTests(unittest.TestCase):
     def test_discover_returns_recent_absolute_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
