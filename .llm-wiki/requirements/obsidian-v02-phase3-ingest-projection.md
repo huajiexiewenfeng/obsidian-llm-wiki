@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: Obsidian LLM Wiki v0.2 Phase 3 Ingest 接入与确定性索引投影
-- status: clarified
+- status: developing
 - flow_id: obsidian-v02-phase3-ingest-projection
 
 ## 来源
@@ -38,9 +38,9 @@
 
 ## 计划
 
-- active_plan:
-- status: none
-- evidence: 对话设计已确认；书面设计已按用户评审修订并完成第二轮自审，待再次复审
+- active_plan: `docs/superpowers/plans/2026-07-11-obsidian-llm-wiki-v0.2-phase3-ingest-projection-implementation-plan.md`
+- status: active
+- evidence: 用户已确认修订设计并要求写实施计划后直接执行；基线 101 tests passed, 2 skipped
 
 ## 外部依赖
 
@@ -56,15 +56,15 @@
 | Step | Status | Evidence | Updated |
 |---|---|---|---|
 | source | done | v0.2 总体设计、Phase 2 handoff、Inventory 实施依赖 | 2026-07-11 |
-| design | active | 书面设计已按 6 项评审意见修订，待用户再次复审 | 2026-07-11 |
-| plan | pending |  |  |
-| development | pending |  |  |
+| design | done | 用户确认按修订设计继续 | 2026-07-11 |
+| plan | done | Phase 3 TDD 实施计划已写入仓库并完成覆盖自检 | 2026-07-11 |
+| development | active | 隔离分支 `codex/v02-phase3-ingest-projection`，基线 101 tests passed, 2 skipped | 2026-07-11 |
 | testing | pending |  |  |
 | archive | pending |  |  |
 
 ## 待确认问题
 
-- 用户再次复审修订后的书面设计后，才能进入实施计划。
+- none
 
 ## 已确认决策
 
