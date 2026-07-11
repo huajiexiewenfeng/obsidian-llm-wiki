@@ -10,6 +10,8 @@ Expected flow:
 detect vault
   -> create control center if missing
   -> create wiki folders
+  -> preview state init
+  -> confirm and create .meta state
   -> create index/log/AGENTS
   -> inventory vault structure
   -> generate knowledge map and scope confirmation
@@ -18,6 +20,18 @@ detect vault
 ```
 
 The init step should be conservative. It creates structure and maps the current state, but does not rewrite the vault.
+
+`state init` is dry-run by default:
+
+```text
+python scripts/llm_wiki.py state init --root <vault-or-control-center> --format json
+python scripts/llm_wiki.py state init --root <vault-or-control-center> --confirm --format json
+```
+
+The confirmed command creates `.meta` schema, source/page registries,
+operations, and change-log state through the shared lock and atomic writer. It
+does not ingest sources or make Markdown projections authoritative. Phase 3
+will connect semantic ingest to these contracts through `ingest apply`.
 
 For existing vaults with many files, initialization must also act as onboarding. It should guide the user into a step-by-step build path instead of leaving them with empty folders.
 

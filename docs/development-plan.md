@@ -10,6 +10,20 @@ Acceptance:
 - old and new Doctor commands produce equivalent JSON and exit codes
 - Ubuntu and Windows tests pass on Python 3.10+
 
+## v0.2 Phase 2: State Contract And Safe Writes
+
+Implementation scope:
+
+- `state init` read-only preview and explicit `--confirm`
+- `.meta` schema plus source, page, operation, and change-log contracts
+- one allowed-root-aware Vault lock and atomic snapshot writer
+- stable IDs, canonical paths, case-fold keys, fingerprint, and checksum helpers
+- frontmatter, managed-body, and projection markers that preserve user regions
+- unit and CLI coverage for idempotency, conflicts, interrupted writes, and CRLF
+
+Phase 2 does not implement `ingest apply`, Doctor migration, automatic
+migration, or Inventory. Those remain Phase 3, Phase 4, and v0.3 work.
+
 ## Phase 0: Repository Skeleton
 
 Deliver:

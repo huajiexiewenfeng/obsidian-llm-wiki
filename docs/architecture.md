@@ -25,6 +25,28 @@ project `.obsidian-llm-wiki.json`, `OBSIDIAN_LLM_WIKI_ROOT`, or exactly one
 active user-configured Vault in that order. It returns a structured error rather
 than scanning the filesystem or selecting between multiple Vaults.
 
+## State And Safe-Write Core
+
+`scripts/llm_wiki_core/state.py`, `writer.py`, and `managed.py` implement the
+Phase 2 state contract. Initialize it with a read-only preview followed by an
+explicitly confirmed command:
+
+```text
+python scripts/llm_wiki.py state init --root <vault-or-control-center> --format json
+python scripts/llm_wiki.py state init --root <vault-or-control-center> --confirm --format json
+```
+
+Machine state lives under `00-知识库中控/.meta/`. `sources.json` and
+`pages.json` are snapshot authorities; `operations.json` and
+`change-log.jsonl` preserve diagnosable write state and audit evidence. Every
+control-center write must use the shared Vault lock, allowed-root check,
+checksum precondition, same-directory temporary file, and atomic replacement.
+
+Markdown remains human-facing. `ingest/index.md`, `wiki/index.md`, and
+`wiki/log.md` are projections, not competing state sources. Phase 2 provides
+the contracts and safe-write primitives; Phase 3 owns `ingest apply` and
+projection rebuilding.
+
 ## Skill Boundaries
 
 ### obsidian-wiki-init

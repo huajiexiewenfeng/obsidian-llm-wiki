@@ -137,6 +137,23 @@ python scripts/llm_wiki.py root resolve --cwd . --format json
 Resolution order is explicit path, nearest project configuration, environment,
 then exactly one active user-configured Vault. The tools never scan the whole disk.
 
+### State initialization
+
+Phase 2 adds a machine-state foundation under `00-知识库中控/.meta/`. Preview
+the operation first, then confirm explicitly:
+
+```text
+python scripts/llm_wiki.py state init --root <vault-or-control-center> --format json
+python scripts/llm_wiki.py state init --root <vault-or-control-center> --confirm --format json
+```
+
+The first command is read-only. The confirmed command creates versioned source,
+page, operation, and change-log state through the shared lock and atomic writer.
+`.meta/sources.json` and `.meta/pages.json` are the machine-state authority for
+later phases; `ingest/index.md`, `wiki/index.md`, and `wiki/log.md` remain
+human-readable projections. State initialization alone does not mean that any
+source has been ingested.
+
 ## Usage Examples
 
 ### First-use Vault setup
@@ -219,6 +236,12 @@ docs/
   development-plan.md
 
 scripts/
+  llm_wiki.py
+  llm_wiki_core/
+    root.py
+    state.py
+    writer.py
+    managed.py
   obsidian_wiki_doctor.py
 
 tests/

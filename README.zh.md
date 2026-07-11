@@ -135,6 +135,20 @@ python scripts/llm_wiki.py root resolve --cwd . --format json
 
 解析顺序为显式路径、最近的项目配置、环境变量、再到唯一激活的用户配置 Vault；工具不会扫描整块磁盘。
 
+### 状态初始化
+
+Phase 2 在 `00-知识库中控/.meta/` 下增加机器状态基础。先预览，再显式确认：
+
+```text
+python scripts/llm_wiki.py state init --root <vault-or-control-center> --format json
+python scripts/llm_wiki.py state init --root <vault-or-control-center> --confirm --format json
+```
+
+第一条命令严格只读。确认命令通过共享锁和原子 writer 创建带版本的来源、页面、operation
+与 change-log 状态。后续阶段以 `.meta/sources.json` 和 `.meta/pages.json` 作为机器状态
+权威；`ingest/index.md`、`wiki/index.md`、`wiki/log.md` 仍是人类可读投影。完成状态初始化
+不代表任何资料已经 ingest。
+
 ## 使用示例
 
 ### 首次设置 Vault
@@ -213,6 +227,12 @@ docs/
   development-plan.md
 
 scripts/
+  llm_wiki.py
+  llm_wiki_core/
+    root.py
+    state.py
+    writer.py
+    managed.py
   obsidian_wiki_doctor.py
 
 tests/

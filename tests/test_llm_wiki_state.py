@@ -156,3 +156,23 @@ class StateInitPlanTests(unittest.TestCase):
             (meta / "sources.json").write_text('{"schema_version": 99}', encoding="utf-8")
             with self.assertRaisesRegex(StateValidationError, "sources.json"):
                 plan_state_init(control)
+
+
+class Phase2DocumentationTests(unittest.TestCase):
+    def test_public_docs_name_state_init_and_meta_authority(self):
+        files = [
+            REPO_ROOT / "README.md",
+            REPO_ROOT / "README.zh.md",
+            REPO_ROOT / "docs" / "architecture.md",
+            REPO_ROOT / "docs" / "workflow.md",
+            REPO_ROOT / "skills" / "obsidian-wiki-init" / "SKILL.md",
+        ]
+        for path in files:
+            text = path.read_text(encoding="utf-8-sig")
+            self.assertIn("state init", text, path)
+            self.assertIn(".meta", text, path)
+
+    def test_phase3_commands_are_not_implemented_early(self):
+        cli = (REPO_ROOT / "scripts" / "llm_wiki.py").read_text(encoding="utf-8-sig")
+        self.assertNotIn('add_parser("ingest")', cli)
+        self.assertNotIn('add_parser("inventory")', cli)
