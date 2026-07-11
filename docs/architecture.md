@@ -19,11 +19,19 @@ obsidian-wiki-maintain applies approved repairs from doctor findings.
 
 ## Root Resolver Core
 
-`scripts/llm_wiki_core/root.py` is the single Root Resolver boundary for every
-workflow and Doctor invocation. It resolves an explicit path, the nearest
-project `.obsidian-llm-wiki.json`, `OBSIDIAN_LLM_WIKI_ROOT`, or exactly one
-active user-configured Vault in that order. It returns a structured error rather
-than scanning the filesystem or selecting between multiple Vaults.
+`skills/obsidian-wiki-runtime/scripts/llm_wiki_core/root.py` is the single Root
+Resolver boundary for every workflow and Doctor invocation. It resolves an
+explicit path, the nearest project `.obsidian-llm-wiki.json`,
+`OBSIDIAN_LLM_WIKI_ROOT`, or exactly one active user-configured Vault in that
+order. It returns a structured error rather than scanning the filesystem or
+selecting between multiple Vaults.
+
+## Runtime Packaging
+
+`skills/obsidian-wiki-runtime/scripts/` is the canonical deterministic runtime.
+Workflow skills locate it as a sibling beneath the installed skills root.
+Repository-root `scripts/` files are compatibility launchers for development
+and existing automation; they contain no runtime implementation.
 
 ## Skill Boundaries
 
@@ -105,7 +113,7 @@ The first version uses these page groups:
 - `sops/`: repeatable procedures, checklists, prompts, and operational workflows
 - `ingest/`: top-level ingest control-plane index, batch history, source path mappings, and processing status
 
-## Why Five Skills
+## Why Five Workflow Skills
 
 Five skills keep diagnosis separate from mutation:
 
@@ -114,6 +122,10 @@ Five skills keep diagnosis separate from mutation:
 - `doctor`: measure, validate, score, and report without editing
 - `maintain`: apply approved repairs after findings are confirmed
 - `query`: use the wiki for answers and synthesis
+
+`obsidian-wiki-runtime` is a shared installable dependency rather than a sixth
+workflow. It packages root resolution and Doctor code so Skills CLI copies the
+runtime together with the five workflow skills.
 
 Future versions may split inventory, rules, and organize into separate skills if
 they become large enough, but diagnosis and repair should remain separate.

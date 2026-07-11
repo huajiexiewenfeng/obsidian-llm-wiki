@@ -112,6 +112,17 @@ For local development from the repository root:
 npx skills add .
 ```
 
+The complete repository install includes the shared `obsidian-wiki-runtime`
+skill. It carries the Python files used by root resolution and Wiki Doctor.
+Install the complete skill set; installing only a workflow skill leaves its
+runtime dependency unavailable.
+
+Verify a local checkout before publishing with:
+
+```bash
+npx skills add . --skill '*' --agent codex --copy --yes
+```
+
 After installation, restart Codex or your agent runtime so the skills can be rediscovered.
 
 ### Root configuration
@@ -211,6 +222,11 @@ skills/
   obsidian-wiki-maintain/
   obsidian-wiki-doctor/
   obsidian-wiki-query/
+  obsidian-wiki-runtime/
+    scripts/
+      llm_wiki.py
+      obsidian_wiki_doctor.py
+      llm_wiki_core/
 
 docs/
   architecture.md
@@ -219,6 +235,7 @@ docs/
   development-plan.md
 
 scripts/
+  llm_wiki.py
   obsidian_wiki_doctor.py
 
 tests/
