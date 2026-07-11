@@ -6,7 +6,7 @@
 
 **Architecture:** Add a normal, installable `obsidian-wiki-runtime` skill that owns the canonical Python implementation. The five workflow skills resolve that sibling skill explicitly, while repository-root scripts become compatibility launchers. Static contract tests and an isolated Skills CLI smoke test enforce both source layout and installed behavior.
 
-**Tech Stack:** Python 3.10+, `unittest`, Skills CLI 1.5.16, GitHub Actions, Markdown skill definitions.
+**Tech Stack:** Python 3.10+, `unittest`, Skills CLI 1.5.14, GitHub Actions, Markdown skill definitions.
 
 ---
 
@@ -348,7 +348,7 @@ class SkillsCliInstallTests(unittest.TestCase):
                 [
                     executable,
                     "--yes",
-                    "skills@1.5.16",
+                    "skills@1.5.14",
                     "add",
                     str(REPO_ROOT),
                     "--skill",

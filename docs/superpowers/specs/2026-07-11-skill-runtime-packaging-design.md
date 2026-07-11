@@ -137,7 +137,7 @@ This test is deterministic and runs in the normal unit-test suite.
 An isolated smoke test will:
 
 1. create a temporary HOME and project installation target;
-2. run Skills CLI 1.5.16 non-interactively against the local checkout with
+2. run Skills CLI 1.5.14 non-interactively against the local checkout with
    `--skill '*' --agent codex --copy --yes` and project-local scope;
 3. assert that `obsidian-wiki-runtime/scripts/` is present in the installed skills tree;
 4. execute the installed `llm_wiki.py root resolve` against a temporary Vault;
@@ -148,7 +148,7 @@ The cross-platform test selects `npx.cmd` on Windows and `npx` elsewhere, then
 executes the equivalent of:
 
 ```text
-npx --yes skills@1.5.16 add <repository-path> --skill '*' --agent codex --copy --yes
+npx --yes skills@1.5.14 add <repository-path> --skill '*' --agent codex --copy --yes
 ```
 
 It sets `HOME`, `USERPROFILE`, `DISABLE_TELEMETRY`, and `DO_NOT_TRACK` to
