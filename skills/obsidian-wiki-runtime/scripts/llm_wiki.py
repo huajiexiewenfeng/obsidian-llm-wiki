@@ -27,6 +27,7 @@ from llm_wiki_core.writer import (
     apply_state_init,
 )
 import obsidian_wiki_doctor
+from llm_wiki_core.archive import ArchiveConflict, ArchiveWriteError
 from llm_wiki_core.ingest import (
     IngestPlanConflict,
     IngestValidationError,
@@ -256,22 +257,36 @@ def run_ingest_apply(args: argparse.Namespace) -> int:
                 "idempotent": result.idempotent,
                 "confirmation_required": False,
             }
+            if result.archive_relative_path is not None:
+                payload["archive_target"] = result.archive_relative_path
             code = 0
-    except (IngestValidationError, IngestPlanConflict, StateValidationError, SnapshotConflict) as error:
+    except (
+        IngestValidationError,
+        IngestPlanConflict,
+        ArchiveConflict,
+        StateValidationError,
+        SnapshotConflict,
+    ) as error:
         payload = {
             "error": {
                 "check": getattr(error, "check", "ingest-conflict"),
                 "message": str(error),
             }
         }
+        hint = getattr(error, "hint", None)
+        if hint:
+            payload["error"]["hint"] = hint
         code = 2
-    except (IngestWriteError, LockTimeout, WriterError, OSError) as error:
+    except (IngestWriteError, ArchiveWriteError, LockTimeout, WriterError, OSError) as error:
         payload = {
             "error": {
-                "check": "ingest-write-failed",
+                "check": getattr(error, "check", "ingest-write-failed"),
                 "message": str(error),
             }
         }
+        hint = getattr(error, "hint", None)
+        if hint:
+            payload["error"]["hint"] = hint
         if isinstance(error, IngestWriteError):
             payload["error"]["current_step"] = error.current_step
             payload["error"]["completed_targets"] = list(error.completed_targets)

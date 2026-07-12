@@ -41,6 +41,7 @@ Use this skill when the user wants to:
 - patch confirmed broken relative wiki links
 - update `log.md` for an approved maintenance action
 - apply a narrow, user-approved cleanup to specific wiki files
+- plan a confirmed cleanup or registration decision for Doctor archive findings
 
 Do not use this skill for read-only diagnosis, validation, scoring, or health
 reports. Use `obsidian-wiki-doctor` first, then return here to apply approved
@@ -96,6 +97,8 @@ Follow `references/repair-policy.md`.
 Follow `references/safety-rules.md`.
 
 Do not rewrite large sets of pages without confirmation.
+Never delete, move, register, or re-archive a `raw/` file solely because Doctor
+reported it. Present the exact candidate path and require confirmation.
 
 ## Examples
 

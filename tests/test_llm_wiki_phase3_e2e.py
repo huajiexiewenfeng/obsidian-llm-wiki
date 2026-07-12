@@ -9,13 +9,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "llm_wiki.py"
+CANONICAL_SCRIPT = REPO_ROOT / "skills/obsidian-wiki-runtime/scripts/llm_wiki.py"
 
 
 def run_cli(*args: str, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    return run_cli_script(SCRIPT, *args, input_text=input_text)
+
+
+def run_cli_script(
+    script: Path,
+    *args: str,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment.pop("OBSIDIAN_LLM_WIKI_ROOT", None)
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
+        [sys.executable, str(script), *args],
         input=input_text,
         text=True,
         stdout=subprocess.PIPE,
@@ -57,14 +66,64 @@ class Phase3EndToEndTests(unittest.TestCase):
         workflow = (
             REPO_ROOT / "skills/obsidian-wiki-ingest/references/ingest-workflow.md"
         ).read_text(encoding="utf-8")
-        for token in ("ingest apply", "--plan-checksum", "must not directly edit", "Phase 3.1"):
+        for token in ("ingest apply", "--plan-checksum", "must not directly edit", "archive-import"):
             self.assertIn(token, skill)
-        for token in ("path-index", "summary-ingest", "unsupported-mode", "Preview is mandatory"):
+        for token in ("path-index", "summary-ingest", "archive-import", "Preview is mandatory", "raw/"):
             self.assertIn(token, workflow)
         for relative in ("README.md", "README.zh.md", "docs/architecture.md", "docs/workflow.md"):
             text = (REPO_ROOT / relative).read_text(encoding="utf-8")
             self.assertIn("ingest apply", text, relative)
             self.assertIn("projection rebuild", text, relative)
+            self.assertIn("archive-import", text, relative)
+
+    def test_unicode_binary_archive_matches_launchers_and_replays_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault = base / "Vault"
+            control = vault / "00-知识库中控"
+            (control / "wiki").mkdir(parents=True)
+            (control / "wiki/index.md").write_bytes(b"# User Index\n")
+            (control / "wiki/log.md").write_bytes(b"# User Log\n")
+            self.assertEqual(
+                run_cli("state", "init", "--root", str(vault), "--confirm").returncode,
+                0,
+            )
+            source = base / "批准资料-合同 01.PDF"
+            source.write_bytes(b"\x00\xffunicode-archive\x80")
+            payload = json.loads(payload_for(source, "archive", takeovers=["wiki/index.md", "wiki/log.md"]))
+            payload["source"]["source_type"] = "binary"
+            payload["source"]["mode"] = "archive-import"
+            text = json.dumps(payload, ensure_ascii=False)
+            payload_path = base / "archive.json"
+            payload_path.write_text(text, encoding="utf-8")
+
+            root_preview = run_cli(
+                "ingest", "apply", "--root", str(vault), "--payload", str(payload_path)
+            )
+            canonical_preview = run_cli_script(
+                CANONICAL_SCRIPT,
+                "ingest", "apply", "--root", str(vault), "--payload", "-",
+                input_text=text,
+            )
+            root_json = json.loads(root_preview.stdout)
+            canonical_json = json.loads(canonical_preview.stdout)
+            applied = run_cli_script(
+                CANONICAL_SCRIPT,
+                "ingest", "apply", "--root", str(vault), "--payload", str(payload_path),
+                "--confirm", "--plan-checksum", root_json["plan_checksum"],
+            )
+            replay = run_cli(
+                "ingest", "apply", "--root", str(vault), "--payload", str(payload_path),
+                "--confirm", "--plan-checksum", root_json["plan_checksum"],
+            )
+            applied_json = json.loads(applied.stdout)
+            target = control / Path(*applied_json["archive_target"].split("/"))
+            target_bytes = target.read_bytes()
+
+        self.assertEqual(root_json["plan_checksum"], canonical_json["plan_checksum"])
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertEqual(target_bytes, b"\x00\xffunicode-archive\x80")
+        self.assertTrue(json.loads(replay.stdout)["idempotent"])
 
     def test_two_sources_file_and_stdin_then_idempotent_replay(self):
         with tempfile.TemporaryDirectory() as tmp:

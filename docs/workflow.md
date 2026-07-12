@@ -39,6 +39,13 @@ resolve root -> read approved source outside the lock -> generate payload
 -> ingest apply --confirm -> Doctor validate/report
 ```
 
+For `archive-import`, one payload represents one approved external file. Dry-run
+shows the derived control-relative `raw/<source-id>/` target. After the user
+confirms the exact plan checksum, Core stages and publishes without replacement,
+keeps the origin in place, commits registry/page/projection state, and lets
+Doctor verify archive path/checksum consistency. Never place files in `raw/` as
+a manual ingest queue.
+
 `page apply` provides the same guarded path for source-less managed-page work.
 `projection rebuild` regenerates all three projections from registries and
 change log. Skills do not directly edit managed state or projection bodies.

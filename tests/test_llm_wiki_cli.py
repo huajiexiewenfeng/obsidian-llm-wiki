@@ -206,7 +206,50 @@ def make_ingest_payload(source: Path) -> dict[str, object]:
     }
 
 
+def make_archive_payload(source: Path) -> dict[str, object]:
+    payload = make_ingest_payload(source)
+    payload["source"]["source_type"] = "binary"
+    payload["source"]["mode"] = "archive-import"
+    return payload
+
+
 class IngestApplyCliTests(unittest.TestCase):
+    def test_archive_preview_and_confirm_expose_relative_target_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault = make_vault(base)
+            self.assertEqual(
+                run_cli("state", "init", "--root", str(vault), "--confirm").returncode,
+                0,
+            )
+            source = base / "批准资料-合同 01.PDF"
+            source.write_bytes(b"\x00\xffarchive\x80bytes")
+            payload_text = json.dumps(make_archive_payload(source), ensure_ascii=False)
+            payload_path = write(base / "archive.json", payload_text)
+
+            preview = run_cli(
+                "ingest", "apply", "--root", str(vault),
+                "--payload", str(payload_path), "--format", "json",
+            )
+            preview_payload = json.loads(preview.stdout)
+            applied = run_cli(
+                "ingest", "apply", "--root", str(vault),
+                "--payload", str(payload_path), "--confirm",
+                "--plan-checksum", preview_payload["plan_checksum"],
+                "--format", "json",
+            )
+            applied_payload = json.loads(applied.stdout)
+            control = next(path for path in vault.iterdir() if path.is_dir())
+            target = control / Path(*applied_payload["archive_target"].split("/"))
+            target_bytes = target.read_bytes()
+
+        self.assertEqual(preview.returncode, 1, preview.stderr)
+        self.assertEqual(preview_payload["archive"]["action"], "archive-create")
+        self.assertFalse(Path(preview_payload["archive"]["target"]).is_absolute())
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertEqual(target_bytes, b"\x00\xffarchive\x80bytes")
+        self.assertNotIn(str(source.resolve()), applied.stdout)
+
     def test_file_and_stdin_dry_run_match_and_write_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

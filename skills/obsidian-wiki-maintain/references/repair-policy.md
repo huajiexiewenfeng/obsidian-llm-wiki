@@ -25,6 +25,9 @@ Requires confirmation:
 - rewriting summaries
 - deleting duplicate pages
 - broad sensitive-content cleanup
+- deleting or moving an orphan archive staging file
+- registering, moving, deleting, or re-archiving an unregistered `raw/` file
+- repairing an archive registry path or checksum relationship
 
 Do not:
 
@@ -32,3 +35,4 @@ Do not:
 - repair files outside the stated active wiki root
 - print secret values while explaining a sensitive cleanup
 - convert broad cleanup requests into edits without approval
+- overwrite immutable archive bytes or infer an archive origin from filename alone

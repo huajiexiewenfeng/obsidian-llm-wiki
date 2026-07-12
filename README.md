@@ -177,8 +177,11 @@ python scripts/llm_wiki.py projection rebuild --root <vault-or-control-center> -
 
 Writes require the same payload plus `--confirm --plan-checksum <sha256>`.
 Exit code `1` is an expected non-executed state; inspect JSON `status`/`check`.
-Ingest accepts `path-index` and `summary-ingest`. Reliable `archive-import`
-copying is a v0.2 Phase 3.1 deliverable; automatic discovery remains v0.3 Inventory work.
+Ingest accepts `path-index`, `summary-ingest`, and `archive-import`. Archive mode
+handles one approved external file per payload, derives an immutable `raw/<source-id>/`
+target, requires preview plus exact checksum confirmation, and never deletes the
+origin. `raw/` is not a candidate inbox. Safe publication requires hard-link
+no-replace support (for example NTFS or ext4); automatic discovery remains v0.3 Inventory work.
 
 ### v0.2 Phase 4 read-only consistency checks
 

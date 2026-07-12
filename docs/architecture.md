@@ -55,6 +55,13 @@ Markdown remains human-facing. `ingest/index.md`, `wiki/index.md`, and
 the contracts and safe-write primitives; Phase 3 owns `ingest apply` and
 projection rebuilding.
 
+Phase 3.1 extends `ingest apply` with `archive-import`. Core derives
+`raw/<source-id>/<safe-name>`, streams a same-directory staging file outside the
+Vault lock, and publishes it with hard-link no-replace semantics. The locked
+transaction validates stat evidence only and stores `archive_relative_path` in
+the source record. Archive bytes are immutable and the external origin remains
+untouched.
+
 Phase 3 is implemented by `llm_wiki_core/ingest.py`, `page.py`, and
 `projection.py`. Read-only planners create deterministic checksummed plans.
 Confirmed coordinators re-plan under one Vault lock before using `writer.py`
@@ -88,6 +95,10 @@ Turns source material into wiki pages. Sources may come from:
 
 - existing Obsidian folders
 - files already placed in `raw/`
+
+`raw/` is a Core-managed archive destination, not an Inventory or Ingest
+candidate inbox. Doctor scans it conditionally for registered target drift,
+unregistered files, and orphan staging files.
 - a single external file
 - one or more external directories
 - an external path list

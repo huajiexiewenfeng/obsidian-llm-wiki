@@ -2,7 +2,8 @@
 
 - Do not delete external files.
 - Do not move external files.
-- Do not copy external files into `raw/` unless explicitly confirmed.
+- Do not copy external files into `raw/` directly. Use confirmed `archive-import` through Core.
+- Treat `raw/` as a managed destination, not an ingest inbox; never overwrite an archive target or delete the external origin.
 - Default to path-index mode for large external folders.
 - Path-index mode still writes safe wiki metadata into the active Obsidian control center: `ingest/index.md` and source proxy nodes under `wiki/sources/`.
 - Do not satisfy ingest by writing generated pages only into a coding or project workspace.

@@ -1,6 +1,6 @@
 ---
 name: obsidian-wiki-ingest
-description: Use this whenever the user wants to ingest, import, index, summarize, organize, or turn Obsidian notes or external folders into an Obsidian LLM Wiki. Trigger on requests like "整理这个目录", "把这个目录做成 wiki", "ingest this file", "scan these external folders", "bring these documents into my knowledge base", or "process raw files". External files are path-indexed by default; deterministic raw archival is deferred to v0.2 Phase 3.1.
+description: Use this whenever the user wants to ingest, import, index, summarize, organize, or turn Obsidian notes or external folders into an Obsidian LLM Wiki. Trigger on requests like "整理这个目录", "把这个目录做成 wiki", "ingest this file", "scan these external folders", "bring these documents into my knowledge base", or "archive this approved file". External files are path-indexed by default; confirmed single files may use deterministic archive-import.
 ---
 
 
@@ -29,7 +29,7 @@ Do not fall back to a repository-relative `scripts/llm_wiki.py` path.
 
 # Obsidian Wiki Ingest
 
-Ingest existing vault content, files in `raw/`, or external files and folders into the LLM Wiki.
+Ingest existing vault content or external files and folders into the LLM Wiki. `raw/` is a managed archive destination, not a candidate inbox.
 
 ## When To Use
 
@@ -38,7 +38,7 @@ Use this skill when the user wants to:
 - organize a vault folder into wiki pages
 - ingest a single file
 - scan one or more external directories
-- process new files under `raw/`
+- archive an explicitly approved external file into managed `raw/`
 - create source/topic/project/entity/SOP pages from material
 
 ## Default Position
@@ -49,9 +49,10 @@ External folders use path-index mode by default:
 scan -> classify -> plan -> confirm -> process approved items
 ```
 
-Do not copy external files into `raw/`. The deterministic archive-copy channel is
-deferred to v0.2 Phase 3.1; until then, `archive-import` must return or be reported
-as `unsupported-mode` instead of falling back to an unaudited copy.
+Do not copy external files into `raw/` directly. For an explicitly approved
+single file, use payload mode `archive-import`, preview it, and confirm the exact
+plan checksum. Core derives `raw/<source-id>/<safe-name>`, stages outside the
+Vault lock, and publishes without replacement. It never deletes the origin.
 
 Always resolve the target Obsidian control center before writing anything. The
 current shell workspace is only the source or working directory unless it is
@@ -121,7 +122,7 @@ Core steps:
 3. Scan candidate files.
 4. Classify files by type, topic, risk, and recommended handling.
 5. Generate an ingestion plan.
-6. Ask for confirmation before reading deeply or copying files.
+6. Ask for confirmation before reading deeply or selecting `archive-import`.
 7. Read only approved source content outside the Core lock and generate one
    versioned payload containing exactly one source proxy and zero or more derived pages.
 8. Run `ingest apply` without `--confirm`; show create/update/unchanged/conflict,
@@ -197,7 +198,7 @@ Never include raw secret values in generated pages. For sensitive sources, recor
 
 Always confirm before:
 
-- requesting a future Phase 3.1 archival copy into `raw/`
+- archiving an external file into managed `raw/`
 - reading PDF, Word, Excel, or large binary-heavy directories deeply
 - processing suspicious or sensitive folders
 - creating many pages at once
@@ -242,7 +243,7 @@ Archive these approved files into raw and then summarize them.
 Expected behavior:
 
 ```text
-Report `unsupported-mode` for the copy step and point to Phase 3.1. Do not perform
-an unaudited direct copy; path-index or summary-ingest may proceed only if the
-user selects that supported mode.
+Create one archive-import payload per approved source, preview the derived raw/
+target, obtain confirmation for the exact plan checksum, apply through Core, and
+run Doctor. Never perform an unaudited direct copy or delete the origin.
 ```

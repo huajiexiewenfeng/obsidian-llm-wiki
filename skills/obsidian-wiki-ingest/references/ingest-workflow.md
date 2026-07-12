@@ -6,7 +6,7 @@
 - single directory
 - multiple directories
 - external path list
-- new files under `raw/`
+- external files explicitly approved for archival
 - existing Obsidian folder
 
 ## Modes
@@ -15,9 +15,14 @@
 |---|---|---|
 | Path index | Record where files are, what they are, topic, risk, recommendation, and wiki graph links | No |
 | Summary ingest | Read approved content and create wiki summaries | Optional |
-| Archive import | Phase 3.1 only; Phase 3 returns `unsupported-mode` | Not in Phase 3 |
+| Archive import | Stage one approved external file and publish it immutably to Core-derived `raw/<source-id>/` | Yes, after exact plan confirmation |
 
 Default mode: path index.
+
+`raw/` is a managed destination and must not be scanned as a new-source inbox.
+Archive import never deletes or moves the external origin. It requires a
+filesystem that supports safe hard-link/no-replace publication (for example
+NTFS or ext4); capability failure is reported without falling back to overwrite.
 
 ## Target Resolution
 
@@ -70,6 +75,7 @@ source paths
   -> ingest apply dry-run
   -> user confirms the exact plan checksum
   -> ingest apply --confirm
+  -> archive staging/no-replace publication when mode is archive-import
   -> deterministic registry/page/projection transaction
   -> Doctor validation
   -> ingestion report
@@ -147,6 +153,12 @@ ingestion report lists graph links updated or intentionally deferred
 ```
 
 ## Deterministic Apply Contract
+
+Preview is mandatory. A payload contains exactly one source; archive targets
+are derived by Core and never supplied as payload paths. `archive-import`
+returns create/reuse/conflict evidence, and different bytes never overwrite an
+existing target. Full source/archive checksum reads occur outside the Vault
+lock; the locked transaction uses stat evidence only.
 
 - One payload represents one confirmed source.
 - It contains exactly one `role: source-proxy` page and zero or more derived pages.

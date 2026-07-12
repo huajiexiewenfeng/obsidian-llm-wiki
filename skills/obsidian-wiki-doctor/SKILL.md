@@ -79,6 +79,8 @@ python "<runtime-script>" doctor score --root <control-center-or-vault> --format
 - Keep Chinese-first explanations for Chinese users.
 - Explain `not-applicable` dimensions instead of treating them as failures.
 - If the user asks to repair, hand off to `obsidian-wiki-maintain` with a narrow repair scope.
+- Explain archive registry/path/checksum drift, unregistered `raw/` files, and
+  orphan archive staging files as read-only findings; never repair them here.
 
 ## References
 

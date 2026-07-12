@@ -169,8 +169,11 @@ python scripts/llm_wiki.py projection rebuild --root <vault-or-control-center> -
 
 真正写入必须复用同一 payload，并追加 `--confirm --plan-checksum <sha256>`。
 退出码 `1` 表示可预期的未执行状态，具体原因读取 JSON `status`/`check`。
-Phase 3 只接受 `path-index`、`summary-ingest`；可靠的 `archive-import`
-复制属于 v0.2 Phase 3.1，新文件自动发现仍属于 v0.3 Inventory。
+Ingest 支持 `path-index`、`summary-ingest` 和 `archive-import`。归档模式一次
+payload 只处理一个已批准的外部文件，由 Core 推导不可变的
+`raw/<source-id>/` 目标，必须先预览并确认精确 plan checksum，且不会删除源文件。
+`raw/` 不是候选收件箱；安全发布需要文件系统支持 hard-link no-replace（如 NTFS、ext4）。
+新文件自动发现仍属于 v0.3 Inventory。
 
 ### v0.2 Phase 4 只读一致性检查
 
