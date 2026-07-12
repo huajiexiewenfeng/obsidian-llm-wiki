@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: 发现 Obsidian Vault 中未摄入或摄入后变更的文档
-- status: ready
+- status: executing
 - flow_id: obsidian-ingest-inventory
 
 ## 来源
@@ -66,7 +66,7 @@
 | source | done | 用户需求与现有 Doctor/Maintain 行为 | 2026-07-11 |
 | design | done | 用户确认的 `docs/superpowers/specs/2026-07-11-obsidian-ingest-inventory-design.md` | 2026-07-12 |
 | plan | active | `docs/superpowers/plans/2026-07-12-obsidian-v03-inventory-implementation-plan.md` | 2026-07-12 |
-| development | pending |  |  |
+| development | active | Task 1 Inventory scope/scanner/baseline codec | 2026-07-12 |
 | testing | pending |  |  |
 | archive | pending |  |  |
 

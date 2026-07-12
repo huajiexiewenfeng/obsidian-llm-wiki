@@ -35,17 +35,17 @@
 - Produces: `scan_inventory(vault_root: Path, control_center: Path, scope: InventoryScope) -> InventoryObservation`。
 - Produces: `load_inventory(path: Path) -> InventoryBaseline` 与 `inventory_payload(baseline: InventoryBaseline) -> dict[str, object]`。
 
-- [ ] **Step 1: 写策略和扫描失败测试**
+- [x] **Step 1: 写策略和扫描失败测试**
 
   在 `tests/test_llm_wiki_inventory.py` 构造临时 Vault，断言普通 `notes/new.md` 被观察，`.obsidian/`、`.agents/`、`node_modules/`、控制中心 `.meta/ingest/wiki/raw`、不支持扩展名和目录 symlink 不被普通扫描返回；绝对 glob 和含 `..` 的 glob 抛出 `InventoryValidationError`。
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
   Run: `python -m pytest tests/test_llm_wiki_inventory.py -q`
 
   Expected: FAIL，原因是 `llm_wiki_core.inventory` 尚不存在。
 
-- [ ] **Step 3: 实现最小策略和扫描器**
+- [x] **Step 3: 实现最小策略和扫描器**
 
   使用冻结 dataclass 定义以下边界，并让所有普通路径保持 Vault 相对 POSIX 形式：
 
@@ -74,11 +74,11 @@
 
   以 `os.walk(..., followlinks=False)` 扫描并在进入目录前剪枝；使用 `Path.stat()` 取得元数据；casefold 索引发现重复键时记录 collision，不任选文件。
 
-- [ ] **Step 4: 写 baseline codec 安全测试并实现**
+- [x] **Step 4: 写 baseline codec 安全测试并实现**
 
   覆盖 schema 1、未知 schema、JSON 损坏、绝对文档键、`..`、非法 disposition、ignored 缺少 reason、敏感 alias 重复和 deterministic JSON round-trip。`load_inventory` 只读，绝不在错误时重建文件。
 
-- [ ] **Step 5: 运行单元测试并提交**
+- [x] **Step 5: 运行单元测试并提交**
 
   Run: `python -m pytest tests/test_llm_wiki_inventory.py -q`
 
