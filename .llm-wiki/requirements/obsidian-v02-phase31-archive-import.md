@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: Obsidian LLM Wiki v0.2 Phase 3.1 Archive Import
-- status: design-confirmed
+- status: design-revised-agent-local
 - flow_id: obsidian-v02-phase31-archive-import
 - parent_flow_id: obsidian-v02-phase3-ingest-projection
 
@@ -12,6 +12,8 @@
 - v0.2 总体设计：`docs/superpowers/specs/2026-07-10-obsidian-llm-wiki-v0.2-design.md`
 - Phase 3 设计：`docs/superpowers/specs/2026-07-11-obsidian-llm-wiki-v0.2-phase3-ingest-projection-design.md`
 - Phase 3.1 设计：`docs/superpowers/specs/2026-07-12-obsidian-llm-wiki-v0.2-phase31-archive-import-design.md`
+- 设计评审：2026-07-12 外部评审提出 Inventory 冲突、ID 碰撞、锁边界与 Doctor 规格同步问题；已逐项验证并修订
+- Inventory 契约修订：`codex/obsidian-ingest-inventory-design@56f064a`（独立设计分支）
 - 实施基线：`main@2414f68`
 
 ## 目标与原因
@@ -36,6 +38,9 @@ Phase 3 已提供确定性 ingest/page/projection transaction，但暂时拒绝�
 - `raw/` 是 Core 管理区；未来 Inventory 排除，未登记文件单独报告。
 - SourceRecord 使用可选 `archive_relative_path`，schema version 1 和旧记录保持兼容。
 - Doctor 只读且不改变 Finding 六字段、score version 1 或评分权重。
+- Registry 精确查找是身份权威；seed 碰撞使用最小可用 deterministic collision ordinal。
+- staging 后不在锁内重验 origin；archive-reuse checksum 在锁外读取，锁内只比较 fingerprint。
+- Phase 4 规格同步声明条件性 `raw/` 扫描；Doctor 公开 checks 在实现时同步。
 
 ## 验收标准
 
@@ -44,6 +49,8 @@ Phase 3 已提供确定性 ingest/page/projection transaction，但暂时拒绝�
 - 不允许 payload 指定任意 archive target 或 overwrite。
 - 来源、staging 和归档 checksum 必须一致。
 - 目标不同 checksum 时绝不覆盖或自动改名。
+- rebind 后恢复旧 origin+checksum 的 new-source 不发生 source ID 覆盖。
+- archive-reuse 不在锁内读取目标全文，也不因 staging 后 origin mtime 变化拒绝提交。
 - 中断状态可诊断且相同 payload 可恢复。
 - Doctor 报告 missing、mismatched、temp 和 unregistered archive。
 - `raw/` Inventory 排除契约有共享 helper 与测试。
@@ -62,7 +69,7 @@ Phase 3 已提供确定性 ingest/page/projection transaction，但暂时拒绝�
 | Step | Status | Evidence | Updated |
 |---|---|---|---|
 | source | done | v0.2 总体设计、Phase 3 archive delivery boundary、Phase 4 handoff | 2026-07-12 |
-| design | done | 用户授权按推荐方案定稿；正式设计已写入仓库 | 2026-07-12 |
+| design | revision-complete-agent-local | 正式设计已按外部评审修订；Inventory 契约修订见 `56f064a` | 2026-07-12 |
 | plan | pending | TDD 实施计划尚未编写 | 2026-07-12 |
 | development | pending | 尚未开始 | 2026-07-12 |
 | testing | baseline-passed-agent-local | 187 passed, 2 existing skips at `main@2414f68` | 2026-07-12 |
@@ -70,4 +77,4 @@ Phase 3 已提供确定性 ingest/page/projection transaction，但暂时拒绝�
 
 ## 下一 Gate
 
-评审书面设计，然后使用 writing-plans 编写 Phase 3.1 TDD 实施计划；计划确认前不修改 production code。
+复审修订后的书面设计及 Inventory 跨分支契约，然后使用 writing-plans 编写 Phase 3.1 TDD 实施计划；计划确认前不修改 production code。

@@ -27,7 +27,7 @@ Doctor 继续回答“当前状态是否一致、哪里不一致、下一步应�
 
 1. 新的一致性 findings 不改变现有 100 分评分契约。
 2. running operation 必须与当前 lock 联合判断。
-3. 扫描范围限制在 control center 的 `.meta/`、`wiki/**/*.md` 和 `ingest/`。
+3. 基础扫描范围限制在 control center 的 `.meta/`、`wiki/**/*.md` 和 `ingest/`；Phase 3.1 启用 `archive-import` 后，受控扩展到 `raw/`，且仅用于 archive registry、目标、未登记文件和 staging temp 一致性检查。
 4. Finding 保持 `check/severity/path/message/line/hint` 六个字段。
 5. 新建纯只读 `llm_wiki_core/doctor_state.py`，现有 Doctor 负责适配与渲染。
 6. Page planner 与 Doctor 共用托管区解析和 checksum 语义，不复制 parser。
@@ -49,7 +49,7 @@ skills/obsidian-wiki-runtime/scripts/
 
 职责：
 
-- `doctor_state.py`：读取机器状态、比较页面与投影、关联 operation/lock、发现遗留 temp，返回内部 `ConsistencyIssue`。
+- `doctor_state.py`：读取机器状态、比较页面与投影、关联 operation/lock、发现遗留 temp，并在 Phase 3.1 schema/record 启用时检查 archive 状态，返回内部 `ConsistencyIssue`。
 - `managed.py`：提供公共只读 `inspect_managed_page()` 与 `inspect_projection_region()`，统一 marker、frontmatter、checksum 和换行语义。
 - `state.py`：继续拥有 registry codec 与 record 校验。
 - `projection.py`：继续拥有三个确定性 renderer，Doctor 只调用 renderer，不调用 apply coordinator。
@@ -62,7 +62,7 @@ skills/obsidian-wiki-runtime/scripts/
 
 - `.meta/` 不存在：Phase 4 检查整体为不适用，不为旧 Wiki 生成缺失状态 findings。
 - `.meta/` 存在：状态层已启用，以下文件均为必要文件：`schema.json`、`sources.json`、`pages.json`、`operations.json`、`change-log.jsonl`。
-- 只枚举 `.meta/`、`wiki/` 和 `ingest/`；不枚举 Vault 其他目录。
+- 基础状态只枚举 `.meta/`、`wiki/` 和 `ingest/`。Phase 3.1 archive 检查额外枚举 control center 的 `raw/`，但不枚举 Vault 其他目录；`raw/` 扩展必须由已支持的 archive record/schema 契约启用，旧 Wiki 不因此产生 archive findings。
 - 任何 registry 相对路径在读取前必须解析并验证仍位于 control center；symlink/junction 越界返回 `unsafe-registered-path`。
 - Doctor 不读取遗留临时文件正文，只读取其路径和文件元数据。
 
@@ -158,10 +158,18 @@ cross-host lock 不计为已确认 active，但其存在会抑制 `orphan-runnin
 
 ### 遗留临时文件
 
-- `orphan-temp-file`，WARN：在允许扫描的三个目录中发现 writer 风格 `.<target>.<random>.tmp` 文件。
+- `orphan-temp-file`，WARN：在允许扫描的基础三个目录，或 Phase 3.1 启用后的 `raw/` 中，发现 writer/archive 风格 `.<target>.<random>.tmp` 文件。
 
 Doctor 只报告 control-center-relative path，不读取内容，也不根据年龄自动删除或降级。
 临时文件命名的前缀、后缀或匹配 predicate 必须与 writer 实现同源，Doctor 不维护一份独立正则。
+
+Phase 3.1 hard-link promotion 已发布 target 但未能删除 staging 名称时，Doctor 应识别 target 与 temp 的同文件身份或已验证相同 checksum，把 temp 报为可确认清理的 orphan；不得把完整 target 误报为 archive mismatch。
+
+### Phase 3.1 Archive 扩展
+
+Phase 3.1 实施时，Doctor 的权威检查清单增加：archive record 缺字段、archive path 越界、目标缺失、checksum drift、非 archive record 携带 archive path、operation/target 状态矛盾、archive staging temp 和 `unregistered-archive`。这些 findings 保持只读，沿用六字段 Finding 与 score version 1，不改变评分。
+
+该扩展的具体 check 名称和公开说明必须在对应检查实现时同步写入 `skills/obsidian-wiki-doctor/references/doctor-checks.md`；不得提前把未实现 check 宣称为当前 Doctor 行为。
 
 ## Finding 兼容与排序
 
@@ -213,7 +221,8 @@ Doctor 不生成可自动执行 payload，不调用 Maintain，不在 hint 中�
 - 三投影 healthy/drift/marker conflict 与 CRLF 等价。
 - active/orphan/failed operation、event status、missing event，以及 INFO 渲染和退出码兼容。
 - live/stale/cross-host/invalid lock。
-- writer 同源 temp pattern 与窄扫描边界。
+- writer/archive 同源 temp pattern 与 `.meta/`、`wiki/`、`ingest/`、条件性 `raw/` 窄扫描边界。
+- Phase 3.1 archive record/target/checksum/unregistered/temp healthy 与 drift 场景。
 - issues 稳定排序。
 
 ### Doctor 集成测试
@@ -242,7 +251,7 @@ Doctor 不生成可自动执行 payload，不调用 Maintain，不在 hint 中�
 5. 三个投影可分别识别 marker conflict 与内容 drift。
 6. running operation 与 lock 联合判断，不把正常 writer 误报为 orphan。
 7. completed event、operation 状态和审计缺口可检查；projection-rebuild 按 Phase 3 契约免除 completion event 审计。
-8. orphan managed page、stale lock和 writer temp 可发现。
+8. orphan managed page、stale lock 和 writer/archive temp 可发现；Phase 3.1 启用后 archive target 与未登记 raw 文件可检查。
 9. 扫描和路径解析不离开 control center。
 10. Doctor 运行前后文件快照完全一致，包括 `.meta/lock.json`。
 11. Finding JSON、五维评分和三条 CLI 保持兼容。

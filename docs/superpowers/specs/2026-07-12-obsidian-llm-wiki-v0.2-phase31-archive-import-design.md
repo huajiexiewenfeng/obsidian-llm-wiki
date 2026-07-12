@@ -2,12 +2,13 @@
 
 ## 状态与基线
 
-- 状态：confirmed
+- 状态：revised-agent-local，待书面复审
 - Flow ID：`obsidian-v02-phase31-archive-import`
 - Parent Flow：`obsidian-v02-phase3-ingest-projection`
 - 实施基线：`main@2414f68`
 - 前置能力：Phase 3 ingest/page/projection transaction、Phase 4 Doctor state consistency
 - 发布约束：必须在 v0.2 tag 前交付；不推迟到 v0.3 Inventory
+- 评审修订：已处理 Inventory `raw/` 冲突、rebind ID 碰撞、锁内 origin/target 大文件读取、Phase 4 扫描边界和 hard-link 恢复说明
 
 ## 背景
 
@@ -148,19 +149,28 @@ Core 提供单一 `resolve_authoritative_source_path()`，避免 Skill、Doctor�
 
 ## Source ID 与归档路径
 
-非 archive 模式保持 Phase 3 的现有 source ID 规则。新的 archive source 使用下列稳定 seed：
+非 archive 模式保持 Phase 3 的现有 source ID 规则。Registry 查找是 source 身份判定的唯一权威；seed 只用于 registry 已确认不存在精确身份记录时分配新 ID。新的 archive source 先使用下列基础 seed：
 
 ```text
 archive\0<normalized-origin-canonical-path>\0<sha256-checksum>
 ```
 
-这使同一外部路径的不同内容成为不同不可变 source。规则如下：
+Core 对基础 seed 计算候选 ID。候选未占用时直接使用；候选已被其他 registry 记录占用时（例如该 ID 对应的记录曾被 rebind），依次尝试：
+
+```text
+archive\0<origin>\0<checksum>\0collision\0<ordinal>
+```
+
+`ordinal` 从 1 开始，选择当前 registry 快照中最小的未占用值。碰撞分配结果一旦写入 registry，后续以 registry 精确身份查找复用，不重新推导或改写。不得使用会随记录更新而变化的 `revision` 作为碰撞因子。
+
+这使同一外部路径的不同内容成为不同不可变 source，同时避免 rebind 后占用旧 seed 产生 ID 碰撞。规则如下：
 
 - 相同 origin、相同 checksum：复用同一 source ID。
 - 相同 origin、不同 checksum：返回 `archive-content-changed`；只有 `move_resolution.action = new-source` 才创建新 source。
 - 新 origin、checksum 与已有 source 相同：沿用 Phase 3 move candidate；用户选择 `rebind` 或 `new-source`。
 - `rebind` 只更新 provenance 身份，归档字节和 archive path 不变，并在 change log 保留旧身份摘要。
 - 对完全相同的 origin 和 checksum 使用 `new-source` 无意义，返回 validation error。
+- `new-source` 的候选 ID 与任意既有记录冲突时必须走上述确定性 collision ordinal，不得覆盖 registry 记录。
 
 目标路径固定为：
 
@@ -205,9 +215,11 @@ Planner 执行：
 }
 ```
 
+`archive-create` 的 `staging_required` 为 true；已在锁外验证目标 checksum 的 `archive-reuse` 为 false。Planner 对既有目标执行流式 checksum 后记录其 fingerprint；该读取不得移入 Vault 锁。
+
 ## Confirmed staging
 
-带 `--confirm` 后，Core 先执行锁外 staging：
+带 `--confirm` 后，Core 先执行锁外归档预检。`archive-create` 执行 staging：
 
 1. 再次检查磁盘空间、来源 fingerprint 和目标父路径安全性。
 2. 创建最终 source 目录；空目录属于 confirmed preparation，不属于 dry-run。
@@ -218,14 +230,16 @@ Planner 执行：
 7. flush 文件、执行 `fsync`，关闭后再进入锁内提交。
 8. 可预期失败时尽力删除 staging；进程崩溃遗留交给 Doctor/Maintain。
 
-Staging 文件不参与普通 source discovery，也不改变已确认 plan 的业务目标。
+复制前后 `fstat` 捕获的稳定快照作为本次 provenance fingerprint。Staging 完成后外部 origin 已不再影响待提交字节；锁内不得因为 origin 随后的 mtime、路径或可用性变化拒绝提交。
+
+`archive-reuse` 不创建 staging。Core 在锁外流式校验既有 archive checksum，并捕获校验前后的稳定 fingerprint；checksum 不同立即返回 conflict。Staging 文件不参与普通 source discovery，也不改变已确认 plan 的业务目标。
 
 ## 锁内提交与发布顺序
 
 Staging 完成后获取 Phase 2 Vault 写锁：
 
 1. 重新加载 registries、operations、change log 和目标文件状态。
-2. 重新校验外部来源 fingerprint、staging checksum、目标状态和 confirmed plan checksum。
+2. 对 staging 或 reuse target 只重新 stat，并与锁外完整 checksum 校验时捕获的 fingerprint 比较；同时校验目标状态和 confirmed plan checksum，不在锁内重算 checksum，也不重新读取或 stat 外部 origin。
 3. 创建或恢复 running operation。
 4. 写 source registry：目标 source 为 `pending`。
 5. 原子发布 staging 为 archive target。
@@ -236,7 +250,7 @@ Staging 完成后获取 Phase 2 Vault 写锁：
 10. 追加 `ingest-apply` change event，其中包含 archive target 和 checksum 摘要。
 11. 将 operation 标记为 `completed`。
 
-Core 不在持锁期间重新读取或复制外部大文件；锁内只做 stat/CAS、归档发布和已有小型状态写入。
+对于 `archive-reuse`，锁内只重新 stat 目标并与锁外 checksum 校验时捕获的 fingerprint 比较。fingerprint 漂移返回 `archive-target-changed` 并要求重新 dry-run；不得在锁内重新读取目标全文。Core 不在持锁期间重新读取或复制外部大文件；锁内只做 stat/CAS、归档发布和已有小型状态写入。
 
 ## 禁止覆盖的原子发布
 
@@ -244,10 +258,11 @@ Core 不在持锁期间重新读取或复制外部大文件；锁内只做 stat/
 
 - 目标不存在时，优先使用同目录 hard-link promotion：对 staging 建立目标 hard link，成功后删除 staging 名称。
 - hard-link create 在目标已存在时必须失败，不得降级为覆盖式 `replace`。
-- 文件系统不支持安全 no-replace 原子发布时返回 `atomic-publish-unsupported`；不使用非原子复制作为 fallback。
+- 文件系统不支持安全 no-replace 原子发布时返回 `atomic-publish-unsupported`；不使用非原子复制作为 fallback。公开 hint 必须说明 Vault 需要位于支持 hard link/no-replace 原子发布的文件系统（例如 NTFS、ext4），并提示 exFAT、FAT32 或部分网络文件系统可能不支持。
 - 发布后 fsync 目标父目录（平台支持时）。
-- 目标存在且 checksum 相同：删除 staging 并执行 `archive-reuse`。
+- 目标存在且锁外已验证 checksum 相同：执行 `archive-reuse`；正常 reuse 不创建 staging，若并发前已产生 staging 则在确认目标未漂移后清理 staging。
 - 目标存在且 checksum 不同：保留目标，删除 staging，返回 `archive-target-conflict`。
+- hard link 已成功而 staging 名称删除失败时，目标已经完整发布；operation 记录该清理缺口。Doctor 必须把“target 已存在且 temp 与 target 指向同一文件或相同 checksum”的 temp 识别为可确认清理的 orphan，不得把目标判为损坏或重新发布。
 
 `raw/` 是 Core 管理区，但实现仍不能依赖“用户不会修改”来允许覆盖。
 
@@ -262,6 +277,7 @@ Archive action：
 | 目标存在且 checksum 不同 | `archive-target-conflict` | no |
 | 相同 origin 出现新 checksum、未显式 resolution | `archive-content-changed` | no |
 | 来源在 dry-run 后或 staging 中变化 | `source-changed` | no |
+| reuse target 在锁外校验后发生 fingerprint 漂移 | `archive-target-changed` | no |
 | 空间不足 | `insufficient-space` | no |
 | 无安全原子发布能力 | `atomic-publish-unsupported` | no |
 | raw 路径或父目录越界 | `unsafe-archive-path` | no |
@@ -294,6 +310,7 @@ Phase 3.1 扩展 Phase 4 的只读状态检查：
 - running/failed operation 与 archive target 状态矛盾；
 - `raw/` 下遗留已知原子 staging temp；
 - `raw/` 下存在 registry 未登记普通文件：`unregistered-archive`。
+- archive target 已发布但同 inode/同 checksum staging 名称遗留时，报告可清理 orphan temp，不重复报告 target mismatch。
 
 Doctor 只读、零修复；Finding 六字段、score version 1 和现有评分权重保持不变。Archive findings 暂不改变评分，除非后续独立评分版本明确升级。
 
@@ -351,6 +368,7 @@ Phase 3.1 不实现 Inventory 命令，但用共享路径分类 helper 和契约
 - 旧 SourceRecord 无 archive 字段仍可加载。
 - archive/non-archive 字段组合校验。
 - 稳定 source ID、origin 内容变化和 rebind/new-source。
+- rebind 把 A+X 的既有 ID 绑定到 B 后，A+X 以 `new-source` 再次创建时使用确定性 collision ordinal 且不覆盖旧记录。
 - Unicode、保留名、大小写和安全文件名。
 
 ### Planner 与 dry-run
@@ -366,6 +384,8 @@ Phase 3.1 不实现 Inventory 命令，但用共享路径分类 helper 和契约
 - 复制期间来源变化。
 - checksum mismatch、空间不足和 I/O failure。
 - no-replace 发布、目标竞争和 unsupported filesystem。
+- reuse target checksum 在锁外读取；锁内只 stat，fingerprint 漂移返回 `archive-target-changed`。
+- hard-link 发布成功但 staging unlink 失败时，目标可用且 Doctor 能识别残留 temp。
 - temp cleanup、fsync 和同目录约束。
 
 ### Coordinator 与恢复
@@ -395,12 +415,14 @@ Phase 3.1 不实现 Inventory 命令，但用共享路径分类 helper 和契约
 - `archive-import` 不再返回 `unsupported-mode`，其他未知 mode 仍被拒绝。
 - dry-run 严格零写入并返回确定性归档计划。
 - confirmed apply 流式复制，不在持锁期间读取外部大文件。
+- archive-reuse 的目标 checksum 在锁外读取；锁内只比较已捕获 fingerprint，且不重新校验外部 origin。
 - 归档目标不同 checksum 时绝不覆盖或自动改名。
+- rebind 后恢复旧 origin+checksum 并选择 new-source 时，确定性分配无碰撞 ID。
 - SourceRecord 同时保留 origin provenance 和权威 archive path，旧记录无需迁移。
 - 中断后 Doctor 能诊断，重复 apply 能按相同 payload 恢复或幂等完成。
 - Doctor 不改变 Finding JSON、score version 1 或只读保证。
 - `raw/` 排除契约能阻止未来 Inventory 重复 ingest。
-- 完整测试通过，文档与三个 Obsidian Skills 行为一致。
+- 完整测试通过，Phase 3.1、Inventory、Phase 4 Doctor 规格与三个 Obsidian Skills 行为一致。
 
 ## 实施前 Gate
 
