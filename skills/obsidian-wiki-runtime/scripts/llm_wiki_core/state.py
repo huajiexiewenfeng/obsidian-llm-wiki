@@ -91,9 +91,13 @@ class SourceRecord:
     sensitivity: str
     last_verified_at: str
     revision: int = 1
+    archive_relative_path: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        payload = asdict(self)
+        if self.archive_relative_path is None:
+            payload.pop("archive_relative_path")
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> "SourceRecord":
@@ -106,11 +110,17 @@ class SourceRecord:
         mode = require_string(payload.get("mode"), "mode")
         checksum = payload.get("checksum")
         proxy_page_id = payload.get("proxy_page_id")
+        archive_relative_path = payload.get("archive_relative_path")
         revision = payload.get("revision", 1)
         if checksum is not None and not isinstance(checksum, str):
             raise StateValidationError("checksum must be a string or null")
         if proxy_page_id is not None and not isinstance(proxy_page_id, str):
             raise StateValidationError("proxy_page_id must be a string or null")
+        if archive_relative_path is not None:
+            archive_relative_path = require_string(
+                archive_relative_path,
+                "archive_relative_path",
+            ).replace("\\", "/")
         if not isinstance(revision, int) or revision < 1:
             raise StateValidationError("revision must be positive")
         if status not in SOURCE_STATUSES:
@@ -130,7 +140,37 @@ class SourceRecord:
             sensitivity=require_string(payload.get("sensitivity"), "sensitivity"),
             last_verified_at=require_string(payload.get("last_verified_at"), "last_verified_at"),
             revision=revision,
+            archive_relative_path=archive_relative_path,
         )
+
+
+def is_archive_managed_path(relative_path: str) -> bool:
+    path = PurePosixPath(relative_path.replace("\\", "/"))
+    return (
+        not path.is_absolute()
+        and ".." not in path.parts
+        and len(path.parts) >= 3
+        and path.parts[0] == "raw"
+    )
+
+
+def resolve_authoritative_source_path(
+    control_center: Path,
+    record: SourceRecord,
+) -> Path:
+    if record.mode != "archive-import":
+        return Path(record.canonical_path).expanduser().resolve()
+    relative = record.archive_relative_path
+    if relative is None or not is_archive_managed_path(relative):
+        raise StateValidationError(
+            "archive_relative_path must be a safe raw/<source-id>/<filename> path"
+        )
+    parts = PurePosixPath(relative).parts
+    if parts[1] != record.source_id:
+        raise StateValidationError(
+            "archive_relative_path source ID does not match source_id"
+        )
+    return ensure_within(control_center / Path(*parts), control_center)
 
 
 @dataclass(frozen=True)

@@ -32,7 +32,9 @@ from .state import (
     SourceRecord,
     StateInitPlan,
     StateValidationError,
+    is_archive_managed_path,
     plan_state_init,
+    resolve_authoritative_source_path,
 )
 from .writer import (
     LockTimeout,
@@ -65,7 +67,9 @@ __all__ = [
     "SourceRecord",
     "StateValidationError",
     "StateInitPlan",
+    "is_archive_managed_path",
     "plan_state_init",
+    "resolve_authoritative_source_path",
     "LockTimeout",
     "SnapshotConflict",
     "VaultLock",

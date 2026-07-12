@@ -23,7 +23,9 @@ from llm_wiki_core.state import (
     ensure_within,
     file_checksum,
     file_fingerprint,
+    is_archive_managed_path,
     plan_state_init,
+    resolve_authoritative_source_path,
     stable_record_id,
 )
 
@@ -77,6 +79,30 @@ class RegistryCodecTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(StateValidationError, "relative_path"):
             decode_page_registry({"schema_version": 1, "records": {page.page_id: page.to_dict()}})
+
+    def test_source_record_archive_path_is_optional_and_old_shape_round_trips(self):
+        old = SOURCE.to_dict()
+        old.pop("archive_relative_path", None)
+
+        decoded = SourceRecord.from_dict(old)
+
+        self.assertIsNone(decoded.archive_relative_path)
+        self.assertNotIn("archive_relative_path", decoded.to_dict())
+
+    def test_archive_path_round_trips_when_present(self):
+        raw = SOURCE.to_dict()
+        raw.update({
+            "mode": "archive-import",
+            "archive_relative_path": f"raw/{SOURCE.source_id}/example.md",
+        })
+
+        decoded = SourceRecord.from_dict(raw)
+
+        self.assertEqual(
+            decoded.archive_relative_path,
+            f"raw/{SOURCE.source_id}/example.md",
+        )
+        self.assertEqual(decoded.to_dict()["archive_relative_path"], decoded.archive_relative_path)
 
 
 class SourceIdentityTests(unittest.TestCase):
@@ -135,6 +161,42 @@ class SourceIdentityTests(unittest.TestCase):
                 file_checksum(path),
                 "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
             )
+
+    def test_archive_authority_uses_raw_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp).resolve()
+            relative = f"raw/{SOURCE.source_id}/example.md"
+            record = SourceRecord.from_dict({
+                **SOURCE.to_dict(),
+                "mode": "archive-import",
+                "archive_relative_path": relative,
+            })
+
+            self.assertTrue(is_archive_managed_path(relative))
+            self.assertEqual(
+                resolve_authoritative_source_path(control, record),
+                (control / relative).resolve(),
+            )
+
+    def test_archive_authority_rejects_escape_and_wrong_source_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp).resolve()
+            for relative in ("../outside.md", "raw/src-other/example.md"):
+                with self.subTest(relative=relative):
+                    record = SourceRecord.from_dict({
+                        **SOURCE.to_dict(),
+                        "mode": "archive-import",
+                        "archive_relative_path": relative,
+                    })
+                    with self.assertRaisesRegex(StateValidationError, "archive_relative_path"):
+                        resolve_authoritative_source_path(control, record)
+
+    def test_non_archive_authority_keeps_canonical_path(self):
+        record = SourceRecord.from_dict(SOURCE.to_dict())
+        self.assertEqual(
+            resolve_authoritative_source_path(Path("C:/unused"), record).as_posix(),
+            Path(record.canonical_path).resolve().as_posix(),
+        )
 
 
 class StateInitPlanTests(unittest.TestCase):
