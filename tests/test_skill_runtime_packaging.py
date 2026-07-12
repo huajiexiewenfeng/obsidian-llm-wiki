@@ -22,6 +22,7 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/llm_wiki_core/writer.py",
     "scripts/llm_wiki_core/managed.py",
     "scripts/llm_wiki_core/doctor_state.py",
+    "scripts/llm_wiki_core/archive.py",
 )
 
 
