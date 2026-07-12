@@ -15,3 +15,4 @@
 - Fast-forwarded Phase 4 into `main@117b28c` and pushed it to `origin/main`; retained `passed-agent-local` verification authority and routed the next design flow to Phase 3.1 archive import.
 - Confirmed the Phase 3.1 archive import child Flow on `main@2414f68`: immutable `raw/` authority, Core-derived paths, lock-free streaming staging, atomic no-replace publication, archive Doctor findings, and future Inventory exclusion; implementation planning remains pending.
 - Revised Phase 3.1 after external design review: registry-authoritative collision-safe IDs, no lock-time origin/full-target reads, deterministic reuse drift handling, hard-link cleanup/FS limitations, and a Phase 4 conditional `raw/` scan amendment; Inventory alignment was committed separately as `56f064a`.
+- Wrote and self-reviewed the eight-task Phase 3.1 TDD implementation plan; production implementation remains gated on plan review and explicit execution selection.

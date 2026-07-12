@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: Obsidian LLM Wiki v0.2 Phase 3.1 Archive Import
-- status: design-revised-agent-local
+- status: implementation-planned-agent-local
 - flow_id: obsidian-v02-phase31-archive-import
 - parent_flow_id: obsidian-v02-phase3-ingest-projection
 
@@ -70,11 +70,11 @@ Phase 3 已提供确定性 ingest/page/projection transaction，但暂时拒绝�
 |---|---|---|---|
 | source | done | v0.2 总体设计、Phase 3 archive delivery boundary、Phase 4 handoff | 2026-07-12 |
 | design | revision-complete-agent-local | 正式设计已按外部评审修订；Inventory 契约修订见 `56f064a` | 2026-07-12 |
-| plan | pending | TDD 实施计划尚未编写 | 2026-07-12 |
+| plan | done | `docs/superpowers/plans/2026-07-12-obsidian-llm-wiki-v0.2-phase31-archive-import-implementation-plan.md`；8 个 TDD 任务，自检通过 | 2026-07-12 |
 | development | pending | 尚未开始 | 2026-07-12 |
 | testing | baseline-passed-agent-local | 187 passed, 2 existing skips at `main@2414f68` | 2026-07-12 |
 | archive | pending | 实施完成后生成 handoff | 2026-07-12 |
 
 ## 下一 Gate
 
-复审修订后的书面设计及 Inventory 跨分支契约，然后使用 writing-plans 编写 Phase 3.1 TDD 实施计划；计划确认前不修改 production code。
+评审并确认 Phase 3.1 TDD 实施计划，然后选择 inline executing-plans 或用户明确要求的其他执行方式；确认前不修改 production code。
