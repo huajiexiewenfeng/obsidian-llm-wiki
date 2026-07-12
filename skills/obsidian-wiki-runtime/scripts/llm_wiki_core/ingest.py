@@ -7,6 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, TextIO
 
+from .archive import (
+    ArchiveError,
+    ArchiveTargetEvidence,
+    archive_source_id,
+    inspect_archive_target,
+)
 from .state import (
     PAGE_TYPES,
     PageRecord,
@@ -34,7 +40,7 @@ from .writer import (
 )
 
 PAYLOAD_SCHEMA_VERSION = 1
-INGEST_MODES = frozenset({"path-index", "summary-ingest"})
+INGEST_MODES = frozenset({"path-index", "summary-ingest", "archive-import"})
 SENSITIVITIES = frozenset({"normal", "sensitive"})
 PAGE_ROLES = frozenset({"source-proxy", "derived"})
 DERIVED_PAGE_TYPES = frozenset({"topic", "project", "entity", "sop"})
@@ -133,9 +139,10 @@ class IngestPlan:
     plan_checksum: str
     confirmable: bool
     confirmation_required: bool
+    archive: ArchiveTargetEvidence | None = None
 
     def to_public_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "control_center": str(self.control_center),
             "source": self.source.to_public_dict(),
             "pages": [page.to_public_dict() for page in self.pages],
@@ -146,6 +153,9 @@ class IngestPlan:
             "confirmable": self.confirmable,
             "confirmation_required": self.confirmation_required,
         }
+        if self.archive is not None:
+            payload["archive"] = self.archive.to_public_dict()
+        return payload
 
 
 @dataclass(frozen=True)
@@ -232,11 +242,6 @@ def _parse_source(value: object) -> SourceInput:
         },
     )
     mode = _string(payload["mode"], "source.mode")
-    if mode == "archive-import":
-        raise IngestValidationError(
-            "source.mode archive-import is deferred to Phase 3.1",
-            check="unsupported-mode",
-        )
     if mode not in INGEST_MODES:
         raise IngestValidationError("source.mode is invalid")
     sensitivity = _string(payload["sensitivity"], "source.sensitivity")
@@ -421,6 +426,8 @@ def _resolve_source(
     payload: IngestPayload,
     sources: Mapping[str, SourceRecord],
 ) -> tuple[SourcePlan, SourceRecord | None]:
+    if payload.source.mode == "archive-import":
+        return _resolve_archive_source(payload, sources)
     source_path = canonical_path(payload.source.path)
     path_key = casefold_path_key(source_path, windows=True)
     same_path = [
@@ -493,6 +500,100 @@ def _resolve_source(
     if resolution and resolution.action == "new-source":
         seed += "|new-source|" + payload.source.checksum
     source_id = stable_record_id("src", seed)
+    return SourcePlan(source_id, "create", 1), None
+
+
+def _resolve_archive_source(
+    payload: IngestPayload,
+    sources: Mapping[str, SourceRecord],
+) -> tuple[SourcePlan, SourceRecord | None]:
+    source_path = canonical_path(payload.source.path)
+    path_key = casefold_path_key(source_path, windows=True)
+    archive_records = [
+        record for record in sources.values() if record.mode == "archive-import"
+    ]
+    same_origin = [
+        record
+        for record in archive_records
+        if casefold_path_key(record.canonical_path, windows=True) == path_key
+    ]
+    if len(same_origin) > 1:
+        raise IngestPlanConflict(
+            "source registry contains duplicate archive origins",
+            check="source-registry-conflict",
+        )
+    resolution = payload.source.move_resolution
+    if same_origin and same_origin[0].checksum == payload.source.checksum:
+        record = same_origin[0]
+        return SourcePlan(record.source_id, "unchanged", record.revision), record
+    if same_origin and (resolution is None or resolution.action != "new-source"):
+        record = same_origin[0]
+        return (
+            SourcePlan(
+                record.source_id,
+                "archive-content-changed",
+                record.revision,
+                (record.source_id,),
+                {
+                    "check": "archive-content-changed",
+                    "resolution_actions": ["new-source"],
+                },
+            ),
+            record,
+        )
+
+    candidates = tuple(
+        sorted(
+            record.source_id
+            for record in archive_records
+            if record.checksum == payload.source.checksum
+            and casefold_path_key(record.canonical_path, windows=True) != path_key
+        )
+    )
+    if candidates and resolution is None:
+        return (
+            SourcePlan(
+                "",
+                "move-conflict",
+                1,
+                candidates,
+                {
+                    "check": "move-candidate",
+                    "resolution_actions": ["rebind", "new-source"],
+                },
+            ),
+            None,
+        )
+    if resolution and resolution.action == "rebind":
+        if resolution.source_id not in candidates:
+            return (
+                SourcePlan(
+                    resolution.source_id or "",
+                    "move-conflict",
+                    1,
+                    candidates,
+                    {"check": "invalid-move-candidate"},
+                ),
+                None,
+            )
+        record = sources[resolution.source_id]
+        if Path(record.display_path).exists():
+            return (
+                SourcePlan(
+                    record.source_id,
+                    "source-copy-not-move",
+                    record.revision,
+                    candidates,
+                    {
+                        "check": "source-copy-not-move",
+                        "resolution_actions": ["new-source"],
+                    },
+                ),
+                record,
+            )
+        return SourcePlan(record.source_id, "rebind", record.revision + 1), record
+
+    source_id = archive_source_id(source_path, payload.source.checksum, sources)
     return SourcePlan(source_id, "create", 1), None
 
 
@@ -579,7 +680,27 @@ def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
         raise IngestPlanConflict(str(error), check="invalid-state") from error
 
     source_plan, previous_source = _resolve_source(payload, sources)
-    if source_plan.action in {"move-conflict", "source-copy-not-move"}:
+    archive: ArchiveTargetEvidence | None = None
+    source_conflict_actions = {
+        "move-conflict",
+        "source-copy-not-move",
+        "archive-content-changed",
+    }
+    if (
+        payload.source.mode == "archive-import"
+        and source_plan.action not in source_conflict_actions
+    ):
+        try:
+            archive = inspect_archive_target(
+                control_center,
+                source_plan.source_id,
+                payload.source.path.name,
+                payload.source.checksum,
+                payload.source.fingerprint["size"],
+            )
+        except ArchiveError as error:
+            raise IngestPlanConflict(str(error), check=error.check) from error
+    if source_plan.action in source_conflict_actions:
         page_plans: tuple["PagePlan", ...] = ()
         projection_plans: tuple["ProjectionPlan", ...] = ()
     else:
@@ -652,18 +773,26 @@ def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
             "source_checksum": payload.source.checksum,
             "payload": normalized_payload_dict(payload),
             "projection_targets": sorted(PROJECTION_PATHS),
+            "archive_target": archive.relative_path if archive is not None else None,
+            "archive_checksum": archive.checksum if archive is not None else None,
         }
     )
     confirmable = (
-        source_plan.action not in {"move-conflict", "source-copy-not-move"}
+        source_plan.action not in source_conflict_actions
         and all(page.action != "conflict" for page in page_plans)
         and all(projection.action != "conflict" for projection in projection_plans)
+        and (archive is None or archive.conflict is None)
     )
     unsigned = {
         "control_center": canonical_path(control_center),
         "source": source_plan.to_public_dict(),
         "pages": [page.to_public_dict() for page in page_plans],
         "projections": [projection.to_public_dict() for projection in projection_plans],
+        "archive": (
+            None
+            if archive is None
+            else {"target": archive.relative_path, "checksum": archive.checksum}
+        ),
         "expected_checksums": dict(sorted(expected.items())),
         "idempotency_key": idempotency_key,
         "confirmable": confirmable,
@@ -679,6 +808,7 @@ def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
         plan_checksum=plan_checksum,
         confirmable=confirmable,
         confirmation_required=confirmable,
+        archive=archive,
     )
 
 

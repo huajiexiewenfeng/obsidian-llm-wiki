@@ -69,6 +69,8 @@ class PayloadContractTests(unittest.TestCase):
     def test_payload_api_is_exported_from_runtime_package(self):
         self.assertIs(llm_wiki_core.IngestPayload, type(load_payload_text(json.dumps(valid_payload()))))
         self.assertIs(llm_wiki_core.load_payload_text, load_payload_text)
+        self.assertIsNotNone(llm_wiki_core.ArchiveTargetEvidence)
+        self.assertEqual(llm_wiki_core.prepare_archive.__module__, "llm_wiki_core.archive")
 
     def test_file_and_stdin_share_normalized_payload(self):
         text = json.dumps(valid_payload(), ensure_ascii=False)
@@ -121,14 +123,13 @@ class PayloadContractTests(unittest.TestCase):
         with self.assertRaisesRegex(IngestValidationError, "page paths conflict"):
             load_payload_text(json.dumps(payload))
 
-    def test_archive_import_is_a_structured_unsupported_mode(self):
+    def test_archive_import_is_an_allowed_mode(self):
         payload = valid_payload()
         payload["source"]["mode"] = "archive-import"
 
-        with self.assertRaises(IngestValidationError) as raised:
-            load_payload_text(json.dumps(payload))
+        parsed = load_payload_text(json.dumps(payload))
 
-        self.assertEqual(raised.exception.check, "unsupported-mode")
+        self.assertEqual(parsed.source.mode, "archive-import")
 
     def test_unknown_schema_and_nested_fields_are_rejected(self):
         payload = valid_payload()
@@ -240,7 +241,167 @@ def source_record(source_id: str, path: Path, checksum: str, *, revision: int = 
     )
 
 
+def archive_record(
+    source_id: str,
+    path: Path,
+    checksum: str,
+    *,
+    revision: int = 1,
+) -> SourceRecord:
+    return SourceRecord(
+        source_id=source_id,
+        display_path=str(path),
+        canonical_path=path.resolve().as_posix(),
+        source_type="binary",
+        mode="archive-import",
+        status="processed",
+        fingerprint=file_fingerprint(path) if path.exists() else {"size": 9, "mtime_ns": 1},
+        checksum=checksum,
+        proxy_page_id=None,
+        sensitivity="normal",
+        last_verified_at="2026-07-12T00:00:00+00:00",
+        revision=revision,
+        archive_relative_path=f"raw/{source_id}/{path.name}",
+    )
+
+
+def archive_planner_fixture(
+    base: Path,
+    name: str = "example.bin",
+) -> tuple[Path, Path, dict[str, object]]:
+    control, source_path, payload = planner_fixture(base, name)
+    source_path.write_bytes(b"archive-binary-v1\x00\xff")
+    payload["source"].update(
+        {
+            "source_type": "binary",
+            "mode": "archive-import",
+            "fingerprint": file_fingerprint(source_path),
+            "checksum": file_checksum(source_path),
+        }
+    )
+    return control, source_path, payload
+
+
+def tree_snapshot(root: Path) -> dict[str, tuple[bool, int, int, bytes | None]]:
+    return {
+        path.relative_to(root).as_posix(): (
+            path.is_dir(),
+            path.stat().st_size,
+            path.stat().st_mtime_ns,
+            None if path.is_dir() else path.read_bytes(),
+        )
+        for path in root.rglob("*")
+    }
+
+
 class IngestPlannerTests(unittest.TestCase):
+    def test_archive_dry_run_plans_target_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, _, raw = archive_planner_fixture(Path(tmp))
+            before = tree_snapshot(control)
+
+            plan = plan_ingest(control, load_payload_text(json.dumps(raw)))
+            after = tree_snapshot(control)
+
+        self.assertEqual(before, after)
+        self.assertEqual(plan.archive.action, "archive-create")
+        self.assertTrue(plan.archive.staging_required)
+        self.assertEqual(
+            plan.to_public_dict()["archive"]["target"],
+            f"raw/{plan.source.source_id}/example.bin",
+        )
+        self.assertNotIn("archive-binary-v1", str(plan.to_public_dict()))
+
+    def test_archive_same_origin_reuses_and_changed_content_requires_resolution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, source_path, raw = archive_planner_fixture(Path(tmp))
+            initial = plan_ingest(control, load_payload_text(json.dumps(raw)))
+            existing = archive_record(
+                initial.source.source_id,
+                source_path,
+                raw["source"]["checksum"],
+            )
+            write_registry(control / ".meta/sources.json", {existing.source_id: existing.to_dict()})
+
+            same = plan_ingest(control, load_payload_text(json.dumps(raw)))
+            source_path.write_bytes(b"archive-binary-v2")
+            raw["source"]["fingerprint"] = file_fingerprint(source_path)
+            raw["source"]["checksum"] = file_checksum(source_path)
+            conflict = plan_ingest(control, load_payload_text(json.dumps(raw)))
+            raw["source"]["move_resolution"] = {"action": "new-source"}
+            distinct = plan_ingest(control, load_payload_text(json.dumps(raw)))
+
+        self.assertEqual(same.source.action, "unchanged")
+        self.assertEqual(same.source.source_id, existing.source_id)
+        self.assertEqual(conflict.source.action, "archive-content-changed")
+        self.assertEqual(conflict.source.conflict["check"], "archive-content-changed")
+        self.assertFalse(conflict.confirmable)
+        self.assertEqual(distinct.source.action, "create")
+        self.assertNotEqual(distinct.source.source_id, existing.source_id)
+
+    def test_archive_rebind_then_new_source_uses_collision_ordinal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            control, path_a, raw_a = archive_planner_fixture(base, "a.bin")
+            first = plan_ingest(control, load_payload_text(json.dumps(raw_a)))
+            existing = archive_record(
+                first.source.source_id,
+                path_a,
+                raw_a["source"]["checksum"],
+            )
+            write_registry(control / ".meta/sources.json", {existing.source_id: existing.to_dict()})
+
+            path_b = base / "b.bin"
+            path_b.write_bytes(path_a.read_bytes())
+            raw_b = json.loads(json.dumps(raw_a))
+            raw_b["source"]["path"] = str(path_b.resolve())
+            raw_b["source"]["fingerprint"] = file_fingerprint(path_b)
+            raw_b["source"]["move_resolution"] = {
+                "action": "rebind",
+                "source_id": existing.source_id,
+            }
+            path_a.unlink()
+            rebound = plan_ingest(control, load_payload_text(json.dumps(raw_b)))
+
+            rebound_record = archive_record(
+                existing.source_id,
+                path_b,
+                raw_b["source"]["checksum"],
+                revision=2,
+            )
+            write_registry(
+                control / ".meta/sources.json",
+                {rebound_record.source_id: rebound_record.to_dict()},
+            )
+            path_a.write_bytes(path_b.read_bytes())
+            raw_a["source"]["fingerprint"] = file_fingerprint(path_a)
+            raw_a["source"]["move_resolution"] = {"action": "new-source"}
+            collision = plan_ingest(control, load_payload_text(json.dumps(raw_a)))
+
+        self.assertEqual(rebound.source.action, "rebind")
+        self.assertEqual(rebound.source.source_id, existing.source_id)
+        self.assertEqual(collision.source.action, "create")
+        self.assertNotEqual(collision.source.source_id, existing.source_id)
+
+    def test_archive_target_recovery_keeps_plan_checksum_and_conflict_blocks_confirm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, source_path, raw = archive_planner_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            create = plan_ingest(control, payload)
+            target = control / Path(*create.archive.relative_path.split("/"))
+            target.parent.mkdir(parents=True)
+            target.write_bytes(source_path.read_bytes())
+
+            reuse = plan_ingest(control, payload)
+            target.write_bytes(b"conflicting-target")
+            conflict = plan_ingest(control, payload)
+
+        self.assertEqual(reuse.archive.action, "archive-reuse")
+        self.assertEqual(create.plan_checksum, reuse.plan_checksum)
+        self.assertEqual(conflict.archive.action, "archive-target-conflict")
+        self.assertFalse(conflict.confirmable)
+        self.assertEqual(conflict.archive.conflict["check"], "archive-target-conflict")
+
     def test_new_source_plan_is_deterministic_and_dry_run_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             control, _, raw = planner_fixture(Path(tmp))
