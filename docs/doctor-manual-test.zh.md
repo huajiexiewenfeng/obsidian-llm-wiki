@@ -30,15 +30,29 @@ Set-Content -Encoding utf8 -Path (Join-Path $wiki 'log.md') -Value "# Log"
 ## 2. Doctor 只读
 
 ~~~powershell
-$before = Get-ChildItem -LiteralPath $vault -Recurse -File | Select-Object FullName, LastWriteTimeUtc | ConvertTo-Json
+$before = Get-ChildItem -LiteralPath $vault -Recurse -File | ForEach-Object {
+  [pscustomobject]@{
+    FullName = $_.FullName
+    Length = $_.Length
+    LastWriteTimeUtc = $_.LastWriteTimeUtc
+    SHA256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash
+  }
+} | ConvertTo-Json
 & $python scripts/llm_wiki.py doctor validate --root $vault --format json --fail-on error
 & $python scripts/llm_wiki.py doctor score --root $vault --format json
 & $python scripts/llm_wiki.py doctor report --root $vault --format text
-$after = Get-ChildItem -LiteralPath $vault -Recurse -File | Select-Object FullName, LastWriteTimeUtc | ConvertTo-Json
+$after = Get-ChildItem -LiteralPath $vault -Recurse -File | ForEach-Object {
+  [pscustomobject]@{
+    FullName = $_.FullName
+    Length = $_.Length
+    LastWriteTimeUtc = $_.LastWriteTimeUtc
+    SHA256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash
+  }
+} | ConvertTo-Json
 $before -eq $after
 ~~~
 
-预期：最后一行是 True。Doctor 不新增、不删除、不修改 Vault 文件。
+预期：最后一行是 True。若 `.meta/lock.json` 存在，它也必须出现在前后快照中且完全不变。Doctor 不新增、不删除、不修改 Vault 文件，也不获取写锁。
 
 ## 3. 新旧入口等价
 
@@ -100,7 +114,19 @@ Set-Content -Encoding utf8 -Path (Join-Path $wiki 'index.md') -Value "# Index"
 
 预期：出现 broken-index-link Error，退出码为 1；Doctor 只报告，不自动修复。
 
-## 8. 真实 Vault 只读试跑
+## 8. Phase 4 状态一致性故障注入
+
+在临时 Vault 先通过 `state init` 和一次测试 ingest 生成 Phase 3 状态，再分别复制一份 fixture 验证：
+
+1. 在 `change-log.jsonl` 末尾追加无换行的半条 JSON：预期 `torn-change-log-tail` WARN，合法前缀生成的 `wiki/log.md` 仍可比较。
+2. 在中间插入非法 JSON 行：预期 `invalid-state-file` ERROR，跳过 event-dependent checks。
+3. 修改 `wiki/index.md` projection marker 内正文：预期 `projection-drift` WARN；Doctor 不自动 rebuild。
+4. 写入其他 host 的合法 `.meta/lock.json` 并保留匹配的 running operation：预期仅 `cross-host-lock` WARN，不误报 orphan。
+5. 留下 `.pages.json.<random>.tmp`：预期 `orphan-temp-file` WARN，Doctor 不读取正文、不删除文件。
+
+每次运行后重复第 2 节快照比较，确认包括 `.meta/lock.json` 在内的所有文件未变化。
+
+## 9. 真实 Vault 只读试跑
 
 ~~~powershell
 $realVault = 'C:\Users\<user>\Documents\Obsidian Vault'

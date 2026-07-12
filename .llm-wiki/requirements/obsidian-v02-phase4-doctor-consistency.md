@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: Obsidian LLM Wiki v0.2 Phase 4 Doctor 状态一致性
-- status: designed
+- status: implemented-agent-local
 - flow_id: obsidian-v02-phase4-doctor-consistency
 
 ## 来源
@@ -69,10 +69,10 @@ Phase 3 已能生成 registry、托管页面、确定性投影和可诊断 opera
 | source | done | v0.2 总体设计、Phase 3 设计与 handoff | 2026-07-12 |
 | design | done | 对话四部分设计确认；书面设计已生成并按外部评审的四项问题修订 | 2026-07-12 |
 | plan | done | `docs/superpowers/plans/2026-07-12-obsidian-llm-wiki-v0.2-phase4-doctor-consistency-implementation-plan.md` | 2026-07-12 |
-| development | pending |  |  |
-| testing | pending |  |  |
-| archive | pending |  |  |
+| development | done | commits `2938061`、`c5650ca`、`76b0482`、`3297e1c`、`69f6c13` | 2026-07-12 |
+| testing | passed-agent-local | `.llm-wiki/verification/obsidian-v02-phase4-doctor-consistency.md`; 187 passed, 2 skipped | 2026-07-12 |
+| archive | done | `.llm-wiki/handoff/obsidian-v02-phase4-doctor-consistency-handoff.md` | 2026-07-12 |
 
 ## 待确认问题
 
-- 设计与实施计划均已完成；下一 gate 为选择执行方式并开始 Task 1。
+- 下一 gate 为 branch review；CI 与独立评审尚未执行。

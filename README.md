@@ -180,6 +180,14 @@ Exit code `1` is an expected non-executed state; inspect JSON `status`/`check`.
 Ingest accepts `path-index` and `summary-ingest`. Reliable `archive-import`
 copying is a v0.2 Phase 3.1 deliverable; automatic discovery remains v0.3 Inventory work.
 
+### v0.2 Phase 4 read-only consistency checks
+
+Doctor now reads the Phase 2/3 state layer and checks registries, managed pages,
+deterministic projections, operations, change events, locks, and writer temporary
+files. These findings do not change score version 1 or its five dimensions.
+Doctor remains strictly read-only: repair, lock isolation, and projection rebuild
+still require an explicit Maintain or apply workflow with user confirmation.
+
 ## Usage Examples
 
 ### First-use Vault setup
@@ -261,6 +269,7 @@ skills/
       llm_wiki_core/
         root.py
         state.py
+        doctor_state.py
         writer.py
         managed.py
 

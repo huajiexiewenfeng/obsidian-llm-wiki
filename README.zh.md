@@ -172,6 +172,13 @@ python scripts/llm_wiki.py projection rebuild --root <vault-or-control-center> -
 Phase 3 只接受 `path-index`、`summary-ingest`；可靠的 `archive-import`
 复制属于 v0.2 Phase 3.1，新文件自动发现仍属于 v0.3 Inventory。
 
+### v0.2 Phase 4 只读一致性检查
+
+Doctor 现在会读取 Phase 2/3 状态层，检查 registry、托管页面、确定性投影、
+operation、change event、lock 和 writer 临时文件之间的一致性。这些 findings
+不改变 score version 1 及现有五个评分维度。Doctor 仍严格只读；修复、隔离旧锁
+或重建投影仍必须进入 Maintain 或 apply 流程，并取得用户确认。
+
 ## 使用示例
 
 ### 首次设置 Vault
@@ -249,6 +256,7 @@ skills/
       llm_wiki_core/
         root.py
         state.py
+        doctor_state.py
         writer.py
         managed.py
 

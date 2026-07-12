@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import socket
@@ -12,6 +13,7 @@ from unittest.mock import patch
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "obsidian_wiki_doctor.py"
 RUNTIME_SCRIPTS = REPO_ROOT / "skills" / "obsidian-wiki-runtime" / "scripts"
+CANONICAL_SCRIPT = RUNTIME_SCRIPTS / "obsidian_wiki_doctor.py"
 sys.path.insert(0, str(RUNTIME_SCRIPTS))
 import obsidian_wiki_doctor as doctor
 from llm_wiki_core.projection import (
@@ -94,7 +96,30 @@ def write_active_operation(control: Path) -> None:
     )
 
 
+def tree_snapshot(root: Path) -> dict[str, tuple[int, int, str]]:
+    snapshot: dict[str, tuple[int, int, str]] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        stat = path.stat()
+        snapshot[path.relative_to(root).as_posix()] = (
+            stat.st_size,
+            stat.st_mtime_ns,
+            hashlib.sha256(path.read_bytes()).hexdigest(),
+        )
+    return snapshot
+
+
 def run_doctor(
+    *args: str,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return run_doctor_script(SCRIPT, *args, env=env, cwd=cwd)
+
+
+def run_doctor_script(
+    script: Path,
     *args: str,
     env: dict[str, str] | None = None,
     cwd: Path | None = None,
@@ -103,7 +128,7 @@ def run_doctor(
     if env:
         merged_env.update(env)
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
+        [sys.executable, str(script), *args],
         cwd=str(cwd) if cwd else None,
         text=True,
         stdout=subprocess.PIPE,
@@ -387,6 +412,55 @@ class ValidationCheckTests(unittest.TestCase):
 
 
 class Phase4IntegrationTests(unittest.TestCase):
+    def test_validate_score_and_report_do_not_modify_control_center(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_active_operation(control)
+            before = tree_snapshot(control)
+            self.assertIn(".meta/lock.json", before)
+
+            results = [
+                run_doctor(
+                    "validate",
+                    "--root",
+                    str(control),
+                    "--format",
+                    "json",
+                    "--fail-on",
+                    "error",
+                ),
+                run_doctor("score", "--root", str(control), "--format", "json"),
+                run_doctor("report", "--root", str(control), "--format", "json"),
+            ]
+            after = tree_snapshot(control)
+
+        self.assertTrue(all(result.returncode == 0 for result in results))
+        self.assertEqual(after, before)
+
+    def test_root_launcher_matches_canonical_phase4_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write(control / "wiki/index.md", projection_page("# Drift"))
+            args = (
+                "validate",
+                "--root",
+                str(control),
+                "--format",
+                "json",
+                "--fail-on",
+                "none",
+            )
+
+            root_result = run_doctor_script(SCRIPT, *args)
+            canonical_result = run_doctor_script(CANONICAL_SCRIPT, *args)
+
+        self.assertEqual(root_result.returncode, canonical_result.returncode)
+        self.assertEqual(json.loads(root_result.stdout), json.loads(canonical_result.stdout))
+        self.assertIn(
+            "projection-drift",
+            [item["check"] for item in json.loads(root_result.stdout)],
+        )
+
     def test_active_operation_info_renders_in_json_and_does_not_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
             control = make_phase3_control_center(Path(tmp))
