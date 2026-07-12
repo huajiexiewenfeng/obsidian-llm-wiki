@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -14,6 +15,15 @@ from llm_wiki_core.state import (
     decode_page_registry,
     decode_source_registry,
     file_checksum,
+)
+from llm_wiki_core.writer import (
+    VaultLock,
+    append_change_event,
+    atomic_write_json,
+    begin_operation,
+    file_text_checksum,
+    load_operations,
+    update_operation,
 )
 
 
@@ -36,6 +46,14 @@ class InventoryValidationError(ValueError):
 
 
 class InventoryLoadError(InventoryValidationError):
+    pass
+
+
+class InventoryPlanConflict(InventoryValidationError):
+    pass
+
+
+class InventoryWriteError(RuntimeError):
     pass
 
 
@@ -182,6 +200,67 @@ class InventoryInspection:
     baseline: InventoryBaseline | None
     findings: tuple[InventoryFinding, ...]
     complete: bool
+
+    def to_public_dict(self) -> dict[str, object]:
+        return {
+            "complete": self.complete,
+            "document_count": len(self.observation.documents),
+            "sensitive_scopes": {
+                alias: {
+                    "document_count": summary.document_count,
+                    "latest_mtime_ns": summary.latest_mtime_ns,
+                }
+                for alias, summary in sorted(self.observation.sensitive_scopes.items())
+            },
+            "findings": [
+                {
+                    "check": item.check,
+                    "severity": item.severity,
+                    "path": item.path,
+                    "message": item.message,
+                    **({} if item.hint is None else {"hint": item.hint}),
+                    **({} if item.count is None else {"count": item.count}),
+                }
+                for item in self.findings
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class InventoryMutationPlan:
+    action: str
+    baseline: InventoryBaseline
+    expected_inventory_checksum: str | None
+    plan_checksum: str
+    idempotency_key: str
+    candidate_count: int
+    confirmable: bool
+
+    def to_public_dict(self) -> dict[str, object]:
+        return {
+            "action": self.action,
+            "candidate_count": self.candidate_count,
+            "sensitive_scopes": {
+                alias: {
+                    "document_count": summary.document_count,
+                    "latest_mtime_ns": summary.latest_mtime_ns,
+                }
+                for alias, summary in sorted(self.baseline.sensitive_scopes.items())
+            },
+            "target": ".meta/inventory.json",
+            "plan_checksum": self.plan_checksum,
+            "idempotency_key": self.idempotency_key,
+            "confirmable": self.confirmable,
+            "confirmation_required": self.confirmable,
+        }
+
+
+@dataclass(frozen=True)
+class InventoryMutationResult:
+    status: str
+    operation_id: str
+    idempotency_key: str
+    idempotent: bool = False
 
 
 def default_inventory_scope(control_center_name: str) -> InventoryScope:
@@ -690,3 +769,176 @@ def inspect_inventory(
         findings=tuple(findings),
         complete=complete,
     )
+
+
+def _digest_payload(payload: Mapping[str, object]) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def plan_inventory_initialize(
+    vault_root: Path,
+    control_center: Path,
+    *,
+    scope: InventoryScope | None = None,
+) -> InventoryMutationPlan:
+    vault = vault_root.expanduser().resolve()
+    control = control_center.expanduser().resolve()
+    meta = control / ".meta"
+    for name in ("schema.json", "sources.json", "pages.json", "operations.json", "change-log.jsonl"):
+        if not (meta / name).is_file():
+            raise InventoryPlanConflict(f"required state file is missing: {name}")
+    target = meta / "inventory.json"
+    if target.exists():
+        raise InventoryPlanConflict("inventory baseline already exists")
+    control_relative = control.relative_to(vault).as_posix()
+    resolved_scope = scope or default_inventory_scope(control_relative)
+    observation = scan_inventory(vault, control, resolved_scope)
+    if observation.errors or observation.collisions:
+        raise InventoryPlanConflict("inventory scan is incomplete or contains path collisions")
+    documents = {
+        path: InventoryDocument("discovered", signature, None)
+        for path, signature in observation.documents.items()
+    }
+    baseline = InventoryBaseline(
+        INVENTORY_SCHEMA_VERSION,
+        resolved_scope,
+        documents,
+        observation.sensitive_scopes,
+    )
+    material = {
+        "action": "initialize",
+        "baseline": inventory_payload(baseline),
+        "expected_inventory_checksum": None,
+        "sources_checksum": file_text_checksum(meta / "sources.json"),
+        "pages_checksum": file_text_checksum(meta / "pages.json"),
+    }
+    plan_checksum = _digest_payload(material)
+    return InventoryMutationPlan(
+        action="initialize",
+        baseline=baseline,
+        expected_inventory_checksum=None,
+        plan_checksum=plan_checksum,
+        idempotency_key=_digest_payload({"kind": "inventory-initialize", "plan": plan_checksum}),
+        candidate_count=len(documents),
+        confirmable=True,
+    )
+
+
+def apply_inventory_initialize(
+    vault_root: Path,
+    control_center: Path,
+    confirmed_plan_checksum: str,
+    *,
+    scope: InventoryScope | None = None,
+) -> InventoryMutationResult:
+    vault = vault_root.expanduser().resolve()
+    control = control_center.expanduser().resolve()
+    meta = control / ".meta"
+    lock = VaultLock(
+        meta / "lock.json",
+        allowed_root=control,
+        command="inventory initialize",
+        target=control,
+    )
+    with lock:
+        expected_idempotency_key = _digest_payload(
+            {"kind": "inventory-initialize", "plan": confirmed_plan_checksum}
+        )
+        for existing in load_operations(meta / "operations.json").values():
+            if (
+                existing.kind == "inventory-initialize"
+                and existing.idempotency_key == expected_idempotency_key
+                and existing.status == "completed"
+            ):
+                return InventoryMutationResult(
+                    "completed",
+                    existing.operation_id,
+                    existing.idempotency_key,
+                    True,
+                )
+        refreshed = plan_inventory_initialize(vault, control, scope=scope)
+        if refreshed.plan_checksum != confirmed_plan_checksum:
+            raise InventoryPlanConflict("confirmed plan checksum no longer matches current state")
+        operation = begin_operation(
+            meta / "operations.json",
+            allowed_root=control,
+            kind="inventory-initialize",
+            idempotency_key=refreshed.idempotency_key,
+            record_ids=[".meta/inventory.json"],
+            reuse_completed=True,
+        )
+        if operation.status == "completed":
+            return InventoryMutationResult(
+                "completed",
+                operation.operation_id,
+                refreshed.idempotency_key,
+                True,
+            )
+        current_step = "write-inventory"
+        try:
+            update_operation(
+                meta / "operations.json",
+                operation.operation_id,
+                allowed_root=control,
+                status="running",
+                current_step=current_step,
+            )
+            atomic_write_json(
+                meta / "inventory.json",
+                inventory_payload(refreshed.baseline),
+                allowed_root=control,
+                expected_checksum=refreshed.expected_inventory_checksum,
+            )
+            current_step = "append-change-log"
+            update_operation(
+                meta / "operations.json",
+                operation.operation_id,
+                allowed_root=control,
+                status="running",
+                current_step=current_step,
+            )
+            append_change_event(
+                meta / "change-log.jsonl",
+                allowed_root=control,
+                operation_id=operation.operation_id,
+                kind="inventory-initialize",
+                record_ids=[".meta/inventory.json"],
+                old_checksums={"inventory.json": None},
+                new_checksums={"inventory.json": file_text_checksum(meta / "inventory.json")},
+                result="completed",
+                idempotency_key=refreshed.idempotency_key,
+                summary={"candidate_count": refreshed.candidate_count},
+            )
+            update_operation(
+                meta / "operations.json",
+                operation.operation_id,
+                allowed_root=control,
+                status="completed",
+                current_step="complete",
+            )
+            return InventoryMutationResult(
+                "completed",
+                operation.operation_id,
+                refreshed.idempotency_key,
+            )
+        except BaseException as error:
+            try:
+                update_operation(
+                    meta / "operations.json",
+                    operation.operation_id,
+                    allowed_root=control,
+                    status="failed",
+                    current_step=current_step,
+                    error=str(error),
+                )
+            except BaseException:
+                pass
+            if isinstance(error, InventoryPlanConflict):
+                raise
+            raise InventoryWriteError(str(error)) from error

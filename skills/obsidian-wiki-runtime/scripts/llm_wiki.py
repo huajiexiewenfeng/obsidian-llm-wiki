@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -35,6 +36,17 @@ from llm_wiki_core.ingest import (
     apply_ingest,
     load_payload_file,
     plan_ingest,
+)
+from llm_wiki_core.inventory import (
+    InventoryLoadError,
+    InventoryPlanConflict,
+    InventoryValidationError,
+    InventoryWriteError,
+    SensitiveScope,
+    apply_inventory_initialize,
+    default_inventory_scope,
+    inspect_inventory,
+    plan_inventory_initialize,
 )
 from llm_wiki_core.page import apply_pages, load_page_apply_payload, plan_page_apply
 from llm_wiki_core.projection import (
@@ -376,6 +388,124 @@ def run_projection_rebuild(args: argparse.Namespace) -> int:
     )
 
 
+def run_inventory_inspect(args: argparse.Namespace) -> int:
+    root = resolve_root(root_arg=args.root, cwd=args.cwd, user_config_path=args.user_config)
+    if root.error is not None or root.vault_root is None or root.control_center is None:
+        payload = root_to_dict(root)
+        print_apply_payload(payload, args.format)
+        return root_exit_code(root)
+    try:
+        scope = inventory_scope_from_args(
+            root.vault_root,
+            root.control_center,
+            args,
+            optional=True,
+        )
+        result = inspect_inventory(
+            root.vault_root,
+            root.control_center,
+            scope_override=scope,
+            verify_content=args.verify_content,
+        )
+        payload = result.to_public_dict()
+        code = 0
+    except (InventoryValidationError, InventoryLoadError, OSError) as error:
+        payload = {"error": {"check": "inventory-inspect-failed", "message": str(error)}}
+        code = 2
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif "error" in payload:
+        print(f"error: {payload['error']['check']}")
+        print(f"message: {payload['error']['message']}")
+    else:
+        print(f"complete: {payload['complete']}")
+        for finding in payload["findings"]:
+            print(f"{finding['severity']}: {finding['check']}: {finding.get('path') or '<unknown>'}")
+    return code
+
+
+def run_inventory_initialize(args: argparse.Namespace) -> int:
+    root = resolve_root(root_arg=args.root, cwd=args.cwd, user_config_path=args.user_config)
+    if root.error is not None or root.vault_root is None or root.control_center is None:
+        payload = root_to_dict(root)
+        print_apply_payload(payload, args.format)
+        return root_exit_code(root)
+    try:
+        scope = inventory_scope_from_args(root.vault_root, root.control_center, args)
+        if not args.confirm:
+            plan = plan_inventory_initialize(root.vault_root, root.control_center, scope=scope)
+            payload = plan.to_public_dict()
+            payload["status"] = "confirmation-required"
+            code = 1
+        elif not args.plan_checksum:
+            payload = {
+                "error": {
+                    "check": "missing-plan-checksum",
+                    "message": "--plan-checksum is required with --confirm",
+                }
+            }
+            code = 2
+        else:
+            result = apply_inventory_initialize(
+                root.vault_root,
+                root.control_center,
+                args.plan_checksum,
+                scope=scope,
+            )
+            payload = {
+                "status": result.status,
+                "operation_id": result.operation_id,
+                "idempotency_key": result.idempotency_key,
+                "idempotent": result.idempotent,
+                "confirmation_required": False,
+            }
+            code = 0
+    except (InventoryValidationError, InventoryLoadError, InventoryPlanConflict, SnapshotConflict) as error:
+        payload = {"error": {"check": "inventory-conflict", "message": str(error)}}
+        code = 2
+    except (InventoryWriteError, LockTimeout, WriterError, OSError) as error:
+        payload = {"error": {"check": "inventory-write-failed", "message": str(error)}}
+        code = 3
+    print_apply_payload(payload, args.format)
+    return code
+
+
+def inventory_scope_from_args(
+    vault_root: Path,
+    control_center: Path,
+    args: argparse.Namespace,
+    *,
+    optional: bool = False,
+):
+    includes = tuple(args.include or ())
+    excludes = tuple(args.exclude or ())
+    sensitive_values = tuple(args.sensitive_scope or ())
+    if optional and not includes and not excludes and not sensitive_values:
+        return None
+    control_relative = control_center.resolve().relative_to(vault_root.resolve()).as_posix()
+    scope = default_inventory_scope(control_relative)
+    sensitive: list[SensitiveScope] = []
+    for value in sensitive_values:
+        alias, separator, pattern = value.partition("=")
+        if not separator:
+            raise InventoryValidationError(
+                "--sensitive-scope must use alias=vault-relative-glob"
+            )
+        sensitive.append(SensitiveScope(alias, pattern))
+    return replace(
+        scope,
+        include=includes or scope.include,
+        exclude=scope.exclude + excludes,
+        sensitive=tuple(sensitive),
+    )
+
+
+def add_inventory_scope_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--include", action="append")
+    parser.add_argument("--exclude", action="append")
+    parser.add_argument("--sensitive-scope", action="append")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="llm-wiki")
     groups = parser.add_subparsers(dest="group", required=True)
@@ -421,6 +551,25 @@ def build_parser() -> argparse.ArgumentParser:
     projection_rebuild = projection_commands.add_parser("rebuild")
     add_apply_arguments(projection_rebuild)
     projection_rebuild.set_defaults(handler=run_projection_rebuild)
+    inventory = groups.add_parser("inventory")
+    inventory_commands = inventory.add_subparsers(dest="command", required=True)
+    inventory_inspect = inventory_commands.add_parser("inspect")
+    inventory_inspect.add_argument("--root")
+    inventory_inspect.add_argument("--cwd", default=str(Path.cwd()))
+    inventory_inspect.add_argument("--user-config")
+    inventory_inspect.add_argument("--verify-content", action="store_true")
+    add_inventory_scope_arguments(inventory_inspect)
+    inventory_inspect.add_argument("--format", choices=("text", "json"), default="json")
+    inventory_inspect.set_defaults(handler=run_inventory_inspect)
+    inventory_initialize = inventory_commands.add_parser("initialize")
+    inventory_initialize.add_argument("--root")
+    inventory_initialize.add_argument("--cwd", default=str(Path.cwd()))
+    inventory_initialize.add_argument("--user-config")
+    inventory_initialize.add_argument("--confirm", action="store_true")
+    inventory_initialize.add_argument("--plan-checksum")
+    add_inventory_scope_arguments(inventory_initialize)
+    inventory_initialize.add_argument("--format", choices=("text", "json"), default="json")
+    inventory_initialize.set_defaults(handler=run_inventory_initialize)
     return parser
 
 

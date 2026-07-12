@@ -38,7 +38,9 @@ STATE_FILE_NAMES = (
     "change-log.jsonl",
 )
 SEVERITY_RANK = {"ERROR": 0, "WARN": 1, "INFO": 2}
-AUDITED_OPERATION_KINDS = frozenset({"state-init", "ingest-apply", "page-apply"})
+AUDITED_OPERATION_KINDS = frozenset(
+    {"state-init", "ingest-apply", "page-apply", "inventory-initialize"}
+)
 
 
 @dataclass(frozen=True)

@@ -153,27 +153,27 @@
 - Produces: `plan_inventory_initialize(...)`、`apply_inventory_mutation(control_center, plan_checksum)`。
 - CLI: `inventory inspect` 和 `inventory initialize [--confirm --plan-checksum]`。
 
-- [ ] **Step 1: 写 CLI dry-run 与退出码失败测试**
+- [x] **Step 1: 写 CLI dry-run 与退出码失败测试**
 
   断言 `inspect --format json` 返回完整非敏感 findings 且退出 0；`initialize` 返回 `confirmation_required=true`、`confirmable=true`、`plan_checksum` 且退出 1；缺少 `--plan-checksum`、计划漂移或损坏旧基线退出 2。
 
-- [ ] **Step 2: 写事务失败测试**
+- [x] **Step 2: 写事务失败测试**
 
   断言确认写入创建 `.meta/inventory.json`，operation kind 为 `inventory-initialize`，change log 有唯一 completed 事件；重复确认幂等；锁冲突、checksum 漂移和注入失败不会伪报成功。
 
-- [ ] **Step 3: 实现计划与事务**
+- [x] **Step 3: 实现计划与事务**
 
   计划 checksum 由规范化 scope、观察结果和输入文件 checksums 生成。确认阶段在 `VaultLock` 内重新扫描、重算计划并比较 checksum，然后调用 `begin_operation`、`atomic_write_json`、`append_change_event`、`update_operation`；错误路径尽力把 operation 标为 failed。
 
-- [ ] **Step 4: 注册 CLI**
+- [x] **Step 4: 注册 CLI**
 
   在 `build_parser()` 增加 `inventory` group；scope 参数是可重复的 `--include`、`--exclude`、`--sensitive-scope alias=glob`，inspect 另有 `--verify-content`。输出沿用 deterministic JSON 和现有 0/1/2/3/4 契约。
 
-- [ ] **Step 5: 让 Doctor 审计 Inventory operation**
+- [x] **Step 5: 让 Doctor 审计 Inventory operation**
 
   把 `inventory-initialize` 加入 `AUDITED_OPERATION_KINDS`，确保完成 operation 缺失 change event 会被现有一致性检查发现。
 
-- [ ] **Step 6: 运行测试并提交**
+- [x] **Step 6: 运行测试并提交**
 
   Run: `python -m pytest tests/test_llm_wiki_inventory.py tests/test_llm_wiki_inventory_cli.py tests/test_llm_wiki_doctor_state.py -q`
 
