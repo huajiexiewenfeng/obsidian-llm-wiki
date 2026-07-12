@@ -21,8 +21,8 @@ Flow ID：`obsidian-ingest-inventory`
 ## 已确认决策
 
 - 默认扫描整个 Vault，但支持 include/exclude。
-- 默认排除系统目录、控制中心机器状态与 Wiki 投影、依赖目录、缓存和构建产物；
-  `00-知识库中控/raw/` 作为既有 ingest 入口显式纳入扫描。
+- 默认排除系统目录、控制中心机器状态与 Wiki 投影、依赖目录、缓存、构建产物和
+  `00-知识库中控/raw/`；`raw/` 是 Phase 3.1 起由 Core 管理的不可变归档保留区。
 - 敏感目录只报告目录级汇总，不展示文件名，不读取正文。
 - 使用持久化扫描基线；目录级 ingest 只覆盖确认时的文件快照，后续新增文件仍会被发现。
 - Doctor 严格只读；所有 Inventory 写入复用 v0.2 的锁、operation、原子替换和 change log 协议。
@@ -76,8 +76,8 @@ Vault 文件元数据
 - 默认 include：Vault 内全部相对路径。
 - 默认 exclude：`.git/`、`.obsidian/`、`.trash/`、`.agents/`、`.codex/`、
   `node_modules/`、常见缓存和构建目录、`00-知识库中控/.meta/`、
-  `00-知识库中控/ingest/` 和 `00-知识库中控/wiki/`。
-- `00-知识库中控/raw/` 显式 include，优先于对控制中心其他区域的排除。
+  `00-知识库中控/ingest/`、`00-知识库中控/wiki/` 和 `00-知识库中控/raw/`。
+- `00-知识库中控/raw/` 不接受 include/force-include 覆盖。已登记文件由 archive registry/Doctor 检查；未登记普通文件报告 `unregistered-archive`，不报告 `uningested-source`。
 - 支持用户确认的 include/exclude 覆盖。
 - 支持用户确认的敏感范围及其报告代号。
 - 只接受已配置的支持扩展名。
@@ -156,9 +156,10 @@ Schema v1：
       ".codex/**",
       "00-知识库中控/.meta/**",
       "00-知识库中控/ingest/**",
-      "00-知识库中控/wiki/**"
+      "00-知识库中控/wiki/**",
+      "00-知识库中控/raw/**"
     ],
-    "force_include": ["00-知识库中控/raw/**"],
+    "force_include": [],
     "extensions": [
       ".md",
       ".markdown",
@@ -404,6 +405,8 @@ Doctor 发现未摄入/过期文档
   -> Doctor 复查
 ```
 
+“手动把文件放进 `raw/` 等待 Inventory/Ingest 发现”的旧工作流自 Phase 3.1 起废止。替代入口是直接把外部文件绝对路径交给 Ingest 生成 `archive-import` payload，由 Core 在确认后归档到 `raw/<source-id>/` 并登记 registry。`raw/` 中的未登记文件属于一致性异常，不是普通 ingest candidate。
+
 如果 ingest 中途失败，source 不得进入 processed；Inventory 观察记录不承担事务回滚状态。
 
 ## 错误处理与安全
@@ -418,7 +421,6 @@ Doctor 发现未摄入/过期文档
 - Doctor、`inventory inspect` 和所有无 `--confirm` 命令必须保持零写入。
 - 敏感范围的文件名不得进入文本、JSON、日志或异常消息。
 - 敏感范围首版不维护逐文件 disposition；如需处理具体文件，必须先由用户明确批准其离开汇总模式。
-- `raw/` 是控制中心中的显式扫描例外；`.meta/`、`ingest/` 和 `wiki/` 仍默认排除。
 - checksum 复核只允许由显式 `--verify-content` 启用，不改变 Doctor 默认不读正文的安全承诺。
 
 ## 验收场景
@@ -426,12 +428,12 @@ Doctor 发现未摄入/过期文档
 1. 无基线时 Doctor 报告 `missing-ingest-inventory`，运行前后 Vault 文件状态不变。
 2. `inventory initialize` 默认只显示计划，`--confirm` 才创建文件。
 3. 没有 registry 摄入证据的初始文件保存为 `discovered` observation。
-4. 基线后新增支持文档报告 `uningested-source`。
+4. 基线后在普通 Vault 内容区新增支持文档报告 `uningested-source`；`raw/` 不进入普通 candidate 扫描，未登记 raw 文件报告 `unregistered-archive`。
 5. registry 推导为 processed 且 fingerprint 未变化时不告警。
 6. registry 推导为 processed 且 fingerprint 变化后报告 `stale-ingested-source`。
 7. `ignored` 文件不再报告未摄入。
 8. 敏感范围变化只报告汇总，所有输出均无文件名。
-9. 默认排除目录和不支持扩展名不会成为候选，但 `00-知识库中控/raw/` 中的支持文档会成为候选。
+9. 默认排除目录和不支持扩展名不会成为候选。
 10. 损坏或版本不支持的 JSON 报告 `invalid-ingest-inventory`，且不被覆盖。
 11. 扫描不完整时报告原因，且不输出完整性结论。
 12. Inventory 不提供 `mark-processed`；只有成功的 `ingest apply` 能使 Doctor 推导 processed。
@@ -445,7 +447,8 @@ Doctor 发现未摄入/过期文档
 
 ## 测试计划
 
-- 单元测试：路径规范化、casefold 冲突、扩展名过滤、include/exclude/force-include、签名比较、disposition 与推导状态。
+- 单元测试：路径规范化、casefold 索引与冲突、扩展名过滤、include/exclude、不可覆盖的 `raw/` 排除、
+  `unregistered-archive` 分类、签名比较、registry 证据推导、disposition 流转。
 - 安全测试：目录穿越、symlink/junction、敏感范围脱敏、损坏 JSON、未知 schema。
 - CLI 测试：dry-run、`--confirm`、`unignore`、`--verify-content`、退出码、文本和 JSON 输出。
 - Doctor 集成测试：Finding、评分和报告聚合。
