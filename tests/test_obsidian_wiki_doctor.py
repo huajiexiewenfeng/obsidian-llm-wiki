@@ -21,7 +21,14 @@ from llm_wiki_core.projection import (
     render_wiki_index,
     render_wiki_log,
 )
-from llm_wiki_core.state import OperationRecord
+from llm_wiki_core.inventory import (
+    InventoryBaseline,
+    InventoryDocument,
+    ObservedSignature,
+    default_inventory_scope,
+    inventory_payload,
+)
+from llm_wiki_core.state import OperationRecord, file_fingerprint
 
 
 def write(path: Path, text: str) -> Path:
@@ -96,6 +103,15 @@ def write_active_operation(control: Path) -> None:
     )
 
 
+def write_inventory_baseline(control: Path, documents: dict[str, InventoryDocument]) -> None:
+    vault = control.parent
+    scope = default_inventory_scope(control.relative_to(vault).as_posix())
+    write_json(
+        control / ".meta/inventory.json",
+        inventory_payload(InventoryBaseline(1, scope, documents, {})),
+    )
+
+
 def tree_snapshot(root: Path) -> dict[str, tuple[int, int, str]]:
     snapshot: dict[str, tuple[int, int, str]] = {}
     for path in sorted(root.rglob("*")):
@@ -149,6 +165,62 @@ class RootResolutionTests(unittest.TestCase):
             self.assertEqual(payload["root"]["wiki_root"], str((control / "wiki").resolve()))
             self.assertTrue(payload["state"]["init_done"])
 
+
+class InventoryDoctorIntegrationTests(unittest.TestCase):
+    def test_doctor_reports_uningested_vault_document_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            vault = control.parent
+            source = write(vault / "notes/new.md", "new document")
+            write_inventory_baseline(
+                control,
+                {
+                    "notes/new.md": InventoryDocument(
+                        "discovered",
+                        ObservedSignature(**file_fingerprint(source)),
+                        None,
+                    )
+                },
+            )
+            before = tree_snapshot(vault)
+
+            result = run_doctor(
+                "validate", "--root", str(control), "--format", "json", "--fail-on", "none"
+            )
+            score_result = run_doctor("score", "--root", str(control), "--format", "json")
+
+            after = tree_snapshot(vault)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        findings = json.loads(result.stdout)
+        inventory = [item for item in findings if item["check"] == "uningested-source"]
+        self.assertEqual(len(inventory), 1)
+        self.assertEqual(inventory[0]["path"], "notes/new.md")
+        self.assertEqual(after, before)
+        dimensions = {
+            item["name"]: item for item in json.loads(score_result.stdout)["dimensions"]
+        }
+        self.assertEqual(dimensions["Ingest traceability"]["score"], 10)
+
+    def test_doctor_reports_missing_inventory_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write(control.parent / "notes/new.md", "candidate")
+
+            result = run_doctor(
+                "validate", "--root", str(control), "--format", "json", "--fail-on", "none"
+            )
+            score_result = run_doctor("score", "--root", str(control), "--format", "json")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        checks = {item["check"] for item in json.loads(result.stdout)}
+        self.assertIn("missing-ingest-inventory", checks)
+        dimensions = {
+            item["name"]: item for item in json.loads(score_result.stdout)["dimensions"]
+        }
+        self.assertEqual(dimensions["Ingest traceability"]["score"], 5)
+
+
+class RootResolutionContinuationTests(unittest.TestCase):
     def test_validate_reports_invalid_explicit_root_as_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "does-not-exist"

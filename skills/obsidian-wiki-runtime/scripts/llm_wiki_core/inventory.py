@@ -632,6 +632,7 @@ def inspect_inventory(
             f"{control_relative}/.meta/inventory.json",
             "Inventory baseline is missing; un-ingested document status is incomplete.",
             hint="Review inventory initialize dry-run before confirming a baseline.",
+            count=len(observation.documents),
         )
         return InventoryInspection(scope, observation, None, (finding,), False)
 

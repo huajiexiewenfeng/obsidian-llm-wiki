@@ -227,15 +227,15 @@
 - Consumes: `inspect_inventory(...)` 和 `InventoryFinding`。
 - Produces: Doctor `run_checks()` 中的 Inventory findings；更新后的 Ingest traceability 20 分维度。
 
-- [ ] **Step 1: 写 Doctor 集成失败测试**
+- [x] **Step 1: 写 Doctor 集成失败测试**
 
   构造有 state 和 baseline 的临时 Vault，新增 `notes/new.md` 后运行 `doctor validate/report`，断言出现 `uningested-source`；修改已 processed 文件后出现 `stale-ingested-source`；运行前后 Vault 快照相同。
 
-- [ ] **Step 2: 写评分矩阵失败测试**
+- [x] **Step 2: 写评分矩阵失败测试**
 
   有效且无 finding 为 20/20；uningested/stale 为 10/20；missing/scope-changed/scan-incomplete 为 5/20；invalid/collision/缺 proxy 为 0/20；未开始 ingest 且无候选为 not-applicable。
 
-- [ ] **Step 3: 接入共享 inspect**
+- [x] **Step 3: 接入共享 inspect**
 
   在 `run_checks()` 中调用 Inventory Core 并把 finding 转换为现有 `Finding`。不要在 Doctor 模块复制扫描规则。扫描不完整时输出明确 warning，不生成“未发现未摄入文档”的完整性结论。
 

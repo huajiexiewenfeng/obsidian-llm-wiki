@@ -12,6 +12,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from llm_wiki_core.doctor_state import ConsistencyIssue, inspect_state_consistency
+from llm_wiki_core.inventory import InventoryFinding, inspect_inventory
 from llm_wiki_core.root import ResolvedRoot, RootIssue, resolve_root
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -38,6 +39,7 @@ class Finding:
     message: str
     line: int | None = None
     hint: str | None = None
+    count: int | None = None
 
 
 def finding_from_root_issue(issue: RootIssue) -> Finding:
@@ -58,6 +60,17 @@ def finding_from_consistency_issue(issue: ConsistencyIssue) -> Finding:
         message=issue.message,
         line=issue.line,
         hint=issue.recovery_hint,
+    )
+
+
+def finding_from_inventory_issue(issue: InventoryFinding) -> Finding:
+    return Finding(
+        check=issue.check,
+        severity=issue.severity,
+        path=issue.path or ".meta/inventory.json",
+        message=issue.message,
+        hint=issue.hint,
+        count=issue.count,
     )
 
 
@@ -157,11 +170,14 @@ def safe_finding(finding: Finding) -> Finding:
         message=safe_text(finding.message) or "",
         line=finding.line,
         hint=safe_text(finding.hint),
+        count=finding.count,
     )
 
 
 def safe_finding_dict(finding: Finding) -> dict[str, object]:
-    return asdict(safe_finding(finding))
+    payload = asdict(safe_finding(finding))
+    payload.pop("count", None)
+    return payload
 
 def markdown_link_target(target: str) -> str:
     target = target.strip()
@@ -444,6 +460,11 @@ def run_checks(root: ResolvedRoot, state: WikiState) -> list[Finding]:
             finding_from_consistency_issue(issue)
             for issue in inspect_state_consistency(root.control_center)
         )
+    if root.vault_root is not None and root.control_center is not None:
+        findings.extend(
+            finding_from_inventory_issue(issue)
+            for issue in inspect_inventory(root.vault_root, root.control_center).findings
+        )
     return findings
 
 
@@ -542,14 +563,64 @@ def build_score_report(root: ResolvedRoot, state: WikiState, findings: list[Find
             message=navigation_message,
         ))
 
-        if state.ingest_started:
-            ingest_error = has_error(findings, "missing-source-proxy")
+        ingest_blocking = has_error(
+            findings,
+            "missing-source-proxy",
+            "invalid-ingest-inventory",
+            "inventory-path-collision",
+        )
+        missing_inventory_candidates = max(
+            (
+                finding.count or 0
+                for finding in findings
+                if finding.check == "missing-ingest-inventory"
+            ),
+            default=0,
+        )
+        ingest_incomplete = has_warning(
+            findings,
+            "inventory-scope-changed",
+            "inventory-scan-incomplete",
+        ) or missing_inventory_candidates > 0 or (
+            state.ingest_started
+            and has_warning(findings, "missing-ingest-inventory")
+        )
+        ingest_attention = has_warning(
+            findings,
+            "uningested-source",
+            "stale-ingested-source",
+        )
+        if ingest_blocking:
             dimensions.append(ScoreDimension(
                 name="Ingest traceability",
                 weight=20,
-                score=0 if ingest_error else 20,
+                score=0,
                 applicability="applicable",
-                message="Processed ingest rows have missing source proxies." if ingest_error else "Ingest rows are traceable to source proxies.",
+                message="Inventory or processed source evidence has blocking errors.",
+            ))
+        elif ingest_incomplete:
+            dimensions.append(ScoreDimension(
+                name="Ingest traceability",
+                weight=20,
+                score=5,
+                applicability="applicable",
+                message="Inventory coverage is incomplete and needs confirmation or repair.",
+            ))
+        elif ingest_attention:
+            dimensions.append(ScoreDimension(
+                name="Ingest traceability",
+                weight=20,
+                score=10,
+                applicability="applicable",
+                message="Vault contains un-ingested or stale source documents.",
+            ))
+        elif state.ingest_started:
+            dimensions.append(ScoreDimension(
+                name="Ingest traceability",
+                weight=20,
+                score=20,
+                applicability="applicable",
+                message="Ingest registry and Inventory evidence are traceable.",
             ))
         else:
             dimensions.append(ScoreDimension(
