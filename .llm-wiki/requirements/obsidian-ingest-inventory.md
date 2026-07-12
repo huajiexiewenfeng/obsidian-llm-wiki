@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: 发现 Obsidian Vault 中未摄入或摄入后变更的文档
-- status: executing
+- status: ready
 - flow_id: obsidian-ingest-inventory
 
 ## 来源
@@ -65,14 +65,14 @@
 |---|---|---|---|
 | source | done | 用户需求与现有 Doctor/Maintain 行为 | 2026-07-11 |
 | design | done | 用户确认的 `docs/superpowers/specs/2026-07-11-obsidian-ingest-inventory-design.md` | 2026-07-12 |
-| plan | active | `docs/superpowers/plans/2026-07-12-obsidian-v03-inventory-implementation-plan.md` | 2026-07-12 |
-| development | active | Task 1 Inventory scope/scanner/baseline codec | 2026-07-12 |
-| testing | pending |  |  |
+| plan | done | `docs/superpowers/plans/2026-07-12-obsidian-v03-inventory-implementation-plan.md` | 2026-07-12 |
+| development | done | `codex/v03-inventory` commits through Inventory CLI, Doctor, skills, and E2E | 2026-07-12 |
+| testing | done | 256-test full suite plus installed-runtime temporary/real Vault read-only trials | 2026-07-12 |
 | archive | pending |  |  |
 
 ## 待确认问题
 
-- 无阻塞问题；实施计划需保持首个可试用里程碑聚焦于新文档发现与 Doctor 报告。
+- 用户可开始本地测试；真实 Vault 尚缺 v0.2 state，需先自行确认 `state init`，再确认 Inventory baseline。
 
 ## 说明
 

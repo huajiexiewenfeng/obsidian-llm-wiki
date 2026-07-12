@@ -297,27 +297,27 @@
 **Interfaces:**
 - Verifies: 临时 Vault 全流程和真实 Vault 零写入试用。
 
-- [ ] **Step 1: 写临时 Vault E2E**
+- [x] **Step 1: 写临时 Vault E2E**
 
   流程为 state init → inventory initialize dry-run/confirm → 新增 Markdown → Doctor 报 uningested → ingest apply → Doctor 不再报 uningested → 修改原文 → Doctor 报 stale → ignore/unignore 验证。另测目录快照 ingest 后新增文件仍被发现。
 
-- [ ] **Step 2: 运行新增与相关回归测试**
+- [x] **Step 2: 运行新增与相关回归测试**
 
   Run: `python -m pytest tests/test_llm_wiki_inventory_e2e.py tests/test_llm_wiki_inventory.py tests/test_llm_wiki_inventory_cli.py tests/test_obsidian_wiki_doctor.py -q`
 
   Expected: PASS。
 
-- [ ] **Step 3: 运行完整测试**
+- [x] **Step 3: 运行完整测试**
 
   Run: `python -m pytest -q`
 
   Expected: 所有测试通过，仅保留环境相关既有 skip。
 
-- [ ] **Step 4: 真实 Vault 只读验证**
+- [x] **Step 4: 真实 Vault 只读验证**
 
   在运行前后记录真实 Vault 文件清单、大小和 mtime；只运行 `inventory inspect` 与 Doctor。若真实 Vault 尚无 baseline，只报告 `missing-ingest-inventory` 并输出 initialize dry-run，未经用户确认不执行 initialize。
 
-- [ ] **Step 5: 完成 Flow Record 与提交**
+- [x] **Step 5: 完成 Flow Record 与提交**
 
   把 development/testing 证据写入 Change Brief 和 handoff；archive 仅在 `project-finish` 阶段标记 done。
 

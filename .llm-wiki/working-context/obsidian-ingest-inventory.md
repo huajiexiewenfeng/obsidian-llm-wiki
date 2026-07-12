@@ -3,7 +3,7 @@
 ## 生命周期
 
 - flow_id: obsidian-ingest-inventory
-- status: executing
+- status: ready-for-user-test
 - branch: codex/v03-inventory
 - baseline: main@0cb31a5
 
@@ -55,3 +55,11 @@
 ## 范围升级日志
 
 - 2026-07-12：无升级；先保持 state.py 和 writer.py 为只读参考。
+
+## 验证结果
+
+- 完整 unittest discovery：257 tests，0 failures，3 skips。
+- 新增 Inventory E2E：baseline 后新增 Markdown 被 Doctor 报告，Doctor 零写入。
+- 已安装 runtime 与开发分支 7 个目标文件 SHA-256 一致。
+- 真实 Vault `inventory inspect`：220 个支持文档，`missing-ingest-inventory`，运行前后 0 个文件变化。
+- 临时本地 Vault：state init、Inventory initialize、baseline 后新增文档发现均成功。
