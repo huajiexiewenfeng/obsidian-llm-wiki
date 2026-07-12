@@ -1,6 +1,6 @@
 # Bug Brief: 2026-07-12-doctor-control-center-wikilink
 
-- status: reproduced-agent-local
+- status: fixed-pushed-installed-verified-agent-local
 - bug_id: 2026-07-12-doctor-control-center-wikilink
 - source: installed-runtime manual archive trial
 
@@ -56,6 +56,6 @@ matching control-center resolution root.
 | source | done | temporary installed-runtime trial | 2026-07-12 |
 | design | diagnosed-agent-local | missing control-center resolver root | 2026-07-12 |
 | plan | done | minimal caller/API/test change | 2026-07-12 |
-| development | pending | TDD red first | 2026-07-12 |
-| testing | pending | focused and full suite | 2026-07-12 |
-| archive | pending | finish after merge/push/install trial | 2026-07-12 |
+| development | done-agent-local | `cd31cc3` adds control-center resolution root and caller wiring | 2026-07-12 |
+| testing | passed-agent-local | focused RED/GREEN; full suite 230 passed, 2 conditional skips; installed-runtime trial Doctor ERROR 0 | 2026-07-12 |
+| archive | done-agent-local | `.llm-wiki/handoff/2026-07-12-doctor-control-center-wikilink-handoff.md` | 2026-07-12 |
