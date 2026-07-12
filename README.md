@@ -165,6 +165,21 @@ later phases; `ingest/index.md`, `wiki/index.md`, and `wiki/log.md` remain
 human-readable projections. State initialization alone does not mean that any
 source has been ingested.
 
+### v0.2 Phase 3 transactional apply
+
+Phase 3 adds three dry-run-first commands:
+
+```text
+python scripts/llm_wiki.py ingest apply --root <vault-or-control-center> --payload <file|-> --format json
+python scripts/llm_wiki.py page apply --root <vault-or-control-center> --payload <file|-> --format json
+python scripts/llm_wiki.py projection rebuild --root <vault-or-control-center> --payload <file|-> --format json
+```
+
+Writes require the same payload plus `--confirm --plan-checksum <sha256>`.
+Exit code `1` is an expected non-executed state; inspect JSON `status`/`check`.
+Ingest accepts `path-index` and `summary-ingest`. Reliable `archive-import`
+copying is a v0.2 Phase 3.1 deliverable; automatic discovery remains v0.3 Inventory work.
+
 ## Usage Examples
 
 ### First-use Vault setup

@@ -1,6 +1,6 @@
 ---
 name: obsidian-wiki-ingest
-description: Use this whenever the user wants to ingest, import, index, summarize, organize, or turn Obsidian notes or external folders into an Obsidian LLM Wiki. Trigger on requests like "整理这个目录", "把这个目录做成 wiki", "ingest this file", "scan these external folders", "bring these documents into my knowledge base", or "process raw files". External files are path-indexed by default and copied into raw only after explicit confirmation.
+description: Use this whenever the user wants to ingest, import, index, summarize, organize, or turn Obsidian notes or external folders into an Obsidian LLM Wiki. Trigger on requests like "整理这个目录", "把这个目录做成 wiki", "ingest this file", "scan these external folders", "bring these documents into my knowledge base", or "process raw files". External files are path-indexed by default; deterministic raw archival is deferred to v0.2 Phase 3.1.
 ---
 
 
@@ -49,7 +49,9 @@ External folders use path-index mode by default:
 scan -> classify -> plan -> confirm -> process approved items
 ```
 
-Do not copy external files into `raw/` unless the user explicitly confirms archival import.
+Do not copy external files into `raw/`. The deterministic archive-copy channel is
+deferred to v0.2 Phase 3.1; until then, `archive-import` must return or be reported
+as `unsupported-mode` instead of falling back to an unaudited copy.
 
 Always resolve the target Obsidian control center before writing anything. The
 current shell workspace is only the source or working directory unless it is
@@ -120,10 +122,28 @@ Core steps:
 4. Classify files by type, topic, risk, and recommended handling.
 5. Generate an ingestion plan.
 6. Ask for confirmation before reading deeply or copying files.
-7. Process approved items.
-8. Write source summary/index/proxy pages into the Obsidian `wiki/` tree.
-9. Update the Obsidian top-level `ingest/index.md`, `wiki/index.md`, related wiki pages, and `wiki/log.md`.
-10. Write an ingestion report that lists graph links updated.
+7. Read only approved source content outside the Core lock and generate one
+   versioned payload containing exactly one source proxy and zero or more derived pages.
+8. Run `ingest apply` without `--confirm`; show create/update/unchanged/conflict,
+   takeover requirements, and the returned `plan_checksum` without exposing sensitive bodies.
+9. After explicit user confirmation, rerun the same payload with `--confirm`
+   and `--plan-checksum <preview-checksum>`.
+10. Run Doctor validation/report and write an ingestion report listing the graph links updated.
+
+The Skill must not directly edit `.meta` registries, managed page regions,
+`ingest/index.md`, `wiki/index.md`, or `wiki/log.md`. Those writes belong to the
+shared runtime coordinator.
+
+Canonical commands:
+
+```text
+python "<runtime-script>" ingest apply --root <vault-or-control-center> --payload <file|-> --format json
+python "<runtime-script>" ingest apply --root <vault-or-control-center> --payload <file|-> --confirm --plan-checksum <sha256> --format json
+python "<runtime-script>" doctor validate --root <vault-or-control-center> --format json
+```
+
+Exit code `1` means an expected non-executed state. Read JSON `status`/`check`
+to distinguish `confirmation-required`, missing configuration, and other causes.
 
 ## Supported Outputs
 
@@ -177,7 +197,7 @@ Never include raw secret values in generated pages. For sensitive sources, recor
 
 Always confirm before:
 
-- copying external files into `raw/`
+- requesting a future Phase 3.1 archival copy into `raw/`
 - reading PDF, Word, Excel, or large binary-heavy directories deeply
 - processing suspicious or sensitive folders
 - creating many pages at once
@@ -222,5 +242,7 @@ Archive these approved files into raw and then summarize them.
 Expected behavior:
 
 ```text
-Copy only the approved files into raw, then create source summaries and an ingestion report.
+Report `unsupported-mode` for the copy step and point to Phase 3.1. Do not perform
+an unaudited direct copy; path-index or summary-ingest may proceed only if the
+user selects that supported mode.
 ```

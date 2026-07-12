@@ -27,6 +27,20 @@ from llm_wiki_core.writer import (
     apply_state_init,
 )
 import obsidian_wiki_doctor
+from llm_wiki_core.ingest import (
+    IngestPlanConflict,
+    IngestValidationError,
+    IngestWriteError,
+    apply_ingest,
+    load_payload_file,
+    plan_ingest,
+)
+from llm_wiki_core.page import apply_pages, load_page_apply_payload, plan_page_apply
+from llm_wiki_core.projection import (
+    apply_projection_rebuild,
+    load_projection_rebuild_payload,
+    plan_projection_rebuild,
+)
 
 
 def root_to_dict(root: ResolvedRoot) -> dict[str, object]:
@@ -186,6 +200,167 @@ def run_state_init(args: argparse.Namespace) -> int:
     return code
 
 
+def print_apply_payload(payload: dict[str, object], output_format: str) -> None:
+    if output_format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    if "error" in payload:
+        error = payload["error"]
+        print(f"error: {error['check']}")
+        print(f"message: {error['message']}")
+        return
+    print(f"status: {payload.get('status')}")
+    if payload.get("plan_checksum"):
+        print(f"plan_checksum: {payload['plan_checksum']}")
+
+
+def run_ingest_apply(args: argparse.Namespace) -> int:
+    root = resolve_root(
+        root_arg=args.root,
+        cwd=args.cwd,
+        user_config_path=args.user_config,
+    )
+    if root.error is not None or root.control_center is None:
+        payload = root_to_dict(root)
+        print_apply_payload(payload, args.format)
+        return root_exit_code(root)
+    try:
+        ingest_payload = load_payload_file(args.payload, sys.stdin)
+        plan = plan_ingest(root.control_center, ingest_payload)
+        if not args.confirm:
+            payload = plan.to_public_dict()
+            payload["status"] = (
+                "confirmation-required" if plan.confirmable else "conflict"
+            )
+            code = 1 if plan.confirmable else 2
+        elif not args.plan_checksum:
+            payload = {
+                "error": {
+                    "check": "missing-plan-checksum",
+                    "message": "--plan-checksum is required with --confirm",
+                }
+            }
+            code = 2
+        else:
+            result = apply_ingest(
+                root.control_center,
+                ingest_payload,
+                args.plan_checksum,
+            )
+            payload = {
+                "status": result.status,
+                "operation_id": result.operation_id,
+                "idempotency_key": result.idempotency_key,
+                "source_id": result.source_id,
+                "record_ids": list(result.record_ids),
+                "idempotent": result.idempotent,
+                "confirmation_required": False,
+            }
+            code = 0
+    except (IngestValidationError, IngestPlanConflict, StateValidationError, SnapshotConflict) as error:
+        payload = {
+            "error": {
+                "check": getattr(error, "check", "ingest-conflict"),
+                "message": str(error),
+            }
+        }
+        code = 2
+    except (IngestWriteError, LockTimeout, WriterError, OSError) as error:
+        payload = {
+            "error": {
+                "check": "ingest-write-failed",
+                "message": str(error),
+            }
+        }
+        if isinstance(error, IngestWriteError):
+            payload["error"]["current_step"] = error.current_step
+            payload["error"]["completed_targets"] = list(error.completed_targets)
+        code = 3
+    except Exception:
+        payload = {
+            "error": {
+                "check": "internal-error",
+                "message": "unexpected internal error",
+            }
+        }
+        code = 4
+    print_apply_payload(payload, args.format)
+    return code
+
+
+def add_apply_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--root")
+    parser.add_argument("--cwd", default=str(Path.cwd()))
+    parser.add_argument("--user-config")
+    parser.add_argument("--payload", required=True)
+    parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--plan-checksum")
+    parser.add_argument("--format", choices=("text", "json"), default="json")
+
+
+def read_payload_text(path: str) -> str:
+    if path == "-":
+        return sys.stdin.read()
+    return Path(path).read_text(encoding="utf-8-sig")
+
+
+def run_simple_apply(args: argparse.Namespace, *, loader, planner, applier) -> int:
+    root = resolve_root(root_arg=args.root, cwd=args.cwd, user_config_path=args.user_config)
+    if root.error is not None or root.control_center is None:
+        payload = root_to_dict(root)
+        print_apply_payload(payload, args.format)
+        return root_exit_code(root)
+    try:
+        command_payload = loader(read_payload_text(args.payload))
+        plan = planner(root.control_center, command_payload)
+        if not args.confirm:
+            payload = plan.to_public_dict()
+            payload["status"] = "confirmation-required" if plan.confirmable else "conflict"
+            code = 1 if plan.confirmable else 2
+        elif not args.plan_checksum:
+            payload = {"error": {"check": "missing-plan-checksum", "message": "--plan-checksum is required with --confirm"}}
+            code = 2
+        else:
+            result = applier(root.control_center, command_payload, args.plan_checksum)
+            payload = {
+                "status": result.status,
+                "operation_id": result.operation_id,
+                "confirmation_required": False,
+            }
+            code = 0
+    except ValueError as error:
+        message = str(error)
+        check = message.split(":", 1)[0] if "-conflict" in message else "invalid-payload"
+        payload = {"error": {"check": check, "message": message}}
+        code = 2
+    except (LockTimeout, WriterError, OSError) as error:
+        payload = {"error": {"check": "write-failed", "message": str(error)}}
+        code = 3
+    except Exception:
+        payload = {"error": {"check": "internal-error", "message": "unexpected internal error"}}
+        code = 4
+    print_apply_payload(payload, args.format)
+    return code
+
+
+def run_page_apply(args: argparse.Namespace) -> int:
+    return run_simple_apply(
+        args,
+        loader=load_page_apply_payload,
+        planner=plan_page_apply,
+        applier=apply_pages,
+    )
+
+
+def run_projection_rebuild(args: argparse.Namespace) -> int:
+    return run_simple_apply(
+        args,
+        loader=load_projection_rebuild_payload,
+        planner=plan_projection_rebuild,
+        applier=apply_projection_rebuild,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="llm-wiki")
     groups = parser.add_subparsers(dest="group", required=True)
@@ -216,6 +391,21 @@ def build_parser() -> argparse.ArgumentParser:
     state_init.add_argument("--confirm", action="store_true")
     state_init.add_argument("--format", choices=("text", "json"), default="json")
     state_init.set_defaults(handler=run_state_init)
+    ingest = groups.add_parser("ingest")
+    ingest_commands = ingest.add_subparsers(dest="command", required=True)
+    ingest_apply = ingest_commands.add_parser("apply")
+    add_apply_arguments(ingest_apply)
+    ingest_apply.set_defaults(handler=run_ingest_apply)
+    page = groups.add_parser("page")
+    page_commands = page.add_subparsers(dest="command", required=True)
+    page_apply = page_commands.add_parser("apply")
+    add_apply_arguments(page_apply)
+    page_apply.set_defaults(handler=run_page_apply)
+    projection = groups.add_parser("projection")
+    projection_commands = projection.add_subparsers(dest="command", required=True)
+    projection_rebuild = projection_commands.add_parser("rebuild")
+    add_apply_arguments(projection_rebuild)
+    projection_rebuild.set_defaults(handler=run_projection_rebuild)
     return parser
 
 

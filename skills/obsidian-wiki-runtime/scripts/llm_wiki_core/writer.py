@@ -228,6 +228,8 @@ def append_change_event(
     old_checksums: Mapping[str, str | None],
     new_checksums: Mapping[str, str | None],
     result: str,
+    idempotency_key: str | None = None,
+    summary: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     safe_path = ensure_within(path, allowed_root)
     sequence = 1
@@ -250,6 +252,10 @@ def append_change_event(
         "result": result,
         "timestamp": utc_now(),
     }
+    if idempotency_key is not None:
+        event["idempotency_key"] = idempotency_key
+    if summary is not None:
+        event["summary"] = dict(summary)
     safe_path.parent.mkdir(parents=True, exist_ok=True)
     with safe_path.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")

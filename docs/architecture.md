@@ -55,6 +55,13 @@ Markdown remains human-facing. `ingest/index.md`, `wiki/index.md`, and
 the contracts and safe-write primitives; Phase 3 owns `ingest apply` and
 projection rebuilding.
 
+Phase 3 is implemented by `llm_wiki_core/ingest.py`, `page.py`, and
+`projection.py`. Read-only planners create deterministic checksummed plans.
+Confirmed coordinators re-plan under one Vault lock before using `writer.py`
+primitives for registries, managed pages, projections, operations, and audit
+events. CLI code owns only root resolution, payload I/O, confirmation, safe
+serialization, and exit-code mapping; source reads and model calls remain outside the lock.
+
 ## Skill Boundaries
 
 ### obsidian-wiki-init
