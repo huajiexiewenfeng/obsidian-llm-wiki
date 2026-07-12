@@ -701,6 +701,8 @@ def format_report_text(root: ResolvedRoot, state: WikiState, findings: list[Find
         f"- {finding.severity} {finding.check}: {finding.path}: {finding.message}"
         for finding in safe_findings
     ] or ["- OK: 未发现阻断性 findings。"]
+    if safe_findings:
+        finding_lines = [f"- {line}" for line in finding_text_lines(safe_findings)]
     dimension_lines = [
         f"- {dimension.name}: {dimension.score if dimension.score is not None else 'N/A'}/{dimension.weight} ({dimension.applicability}) - {dimension.message}"
         for dimension in report.dimensions
@@ -743,9 +745,30 @@ def emit_findings_text(findings: list[Finding]) -> None:
     if not safe_findings:
         print("OK")
         return
-    for finding in safe_findings:
-        location = finding.path or "<unknown>"
-        print(f"{finding.severity}: {finding.check}: {location}: {finding.message}")
+    for line in finding_text_lines(safe_findings):
+        print(line)
+
+
+def finding_text_lines(findings: list[Finding]) -> list[str]:
+    grouped_checks = {"uningested-source", "stale-ingested-source"}
+    lines: list[str] = []
+    groups: dict[tuple[str, str, str], list[Finding]] = {}
+    for finding in findings:
+        if finding.check not in grouped_checks:
+            location = finding.path or "<unknown>"
+            lines.append(f"{finding.severity}: {finding.check}: {location}: {finding.message}")
+            continue
+        top = finding.path.split("/", 1)[0] if finding.path else "<unknown>"
+        groups.setdefault((finding.severity, finding.check, top), []).append(finding)
+    for (severity, check, top), items in sorted(groups.items()):
+        ordered = sorted(items, key=lambda item: item.path)
+        lines.append(f"{severity}: {check}: {top}: {len(ordered)} documents")
+        for finding in ordered[:20]:
+            lines.append(f"  - {finding.path}: {finding.message}")
+        remaining = len(ordered) - 20
+        if remaining > 0:
+            lines.append(f"  - ... {remaining} more")
+    return lines
 
 def should_fail(findings: list[Finding], fail_on: str) -> bool:
     if fail_on == "none":

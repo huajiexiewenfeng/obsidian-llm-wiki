@@ -235,11 +235,13 @@ class InventoryMutationPlan:
     idempotency_key: str
     candidate_count: int
     confirmable: bool
+    affected_count: int = 0
 
     def to_public_dict(self) -> dict[str, object]:
         return {
             "action": self.action,
             "candidate_count": self.candidate_count,
+            "affected_count": self.affected_count,
             "sensitive_scopes": {
                 alias: {
                     "document_count": summary.document_count,
@@ -938,6 +940,226 @@ def apply_inventory_initialize(
                     current_step=current_step,
                     error=str(error),
                 )
+            except BaseException:
+                pass
+            if isinstance(error, InventoryPlanConflict):
+                raise
+            raise InventoryWriteError(str(error)) from error
+
+
+def _current_baseline_with_scope(
+    vault: Path,
+    control: Path,
+    previous: InventoryBaseline,
+    scope: InventoryScope,
+) -> InventoryBaseline:
+    observation = scan_inventory(vault, control, scope)
+    if observation.errors or observation.collisions:
+        raise InventoryPlanConflict("inventory scan is incomplete or contains path collisions")
+    documents: dict[str, InventoryDocument] = {}
+    for path, signature in observation.documents.items():
+        old = previous.documents.get(path)
+        disposition = old.disposition if old is not None else "discovered"
+        reason = old.ignore_reason if disposition == "ignored" else None
+        documents[path] = InventoryDocument(disposition, signature, reason)
+    return InventoryBaseline(1, scope, documents, observation.sensitive_scopes)
+
+
+def _update_plan(
+    action: str,
+    baseline: InventoryBaseline,
+    expected_checksum: str,
+    *,
+    affected_count: int,
+) -> InventoryMutationPlan:
+    material = {
+        "action": action,
+        "baseline": inventory_payload(baseline),
+        "expected_inventory_checksum": expected_checksum,
+    }
+    plan_checksum = _digest_payload(material)
+    return InventoryMutationPlan(
+        action=action,
+        baseline=baseline,
+        expected_inventory_checksum=expected_checksum,
+        plan_checksum=plan_checksum,
+        idempotency_key=_digest_payload({"kind": f"inventory-{action}", "plan": plan_checksum}),
+        candidate_count=sum(
+            document.disposition == "discovered" for document in baseline.documents.values()
+        ),
+        confirmable=True,
+        affected_count=affected_count,
+    )
+
+
+def plan_inventory_configure(
+    vault_root: Path,
+    control_center: Path,
+    scope: InventoryScope,
+) -> InventoryMutationPlan:
+    vault = vault_root.resolve()
+    control = control_center.resolve()
+    target = control / ".meta/inventory.json"
+    expected = file_text_checksum(target)
+    if expected is None:
+        raise InventoryPlanConflict("inventory baseline is missing")
+    previous = load_inventory(target)
+    updated = _current_baseline_with_scope(vault, control, previous, scope)
+    old_paths = set(previous.documents)
+    new_paths = set(updated.documents)
+    changed = len(old_paths.symmetric_difference(new_paths))
+    changed += sum(
+        previous.documents[path].disposition != updated.documents[path].disposition
+        for path in old_paths & new_paths
+    )
+    return _update_plan("configure", updated, expected, affected_count=changed)
+
+
+def _mutation_targets(
+    baseline: InventoryBaseline,
+    control_relative: str,
+    requested_path: str,
+) -> tuple[str, ...]:
+    target = _normalized_relative_path(requested_path, "inventory mutation path")
+    if target == control_relative or target.startswith(control_relative.rstrip("/") + "/"):
+        raise InventoryPlanConflict("inventory mutation path must not target the control center")
+    prefix = target.rstrip("/") + "/"
+    matches = tuple(
+        path for path in sorted(baseline.documents)
+        if path == target or path.startswith(prefix)
+    )
+    if not matches:
+        raise InventoryPlanConflict("inventory mutation path matches no ordinary documents")
+    return matches
+
+
+def plan_inventory_ignore(
+    vault_root: Path,
+    control_center: Path,
+    requested_path: str,
+    reason: str,
+) -> InventoryMutationPlan:
+    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 200:
+        raise InventoryPlanConflict("ignore reason must be a short non-empty string")
+    vault = vault_root.resolve()
+    control = control_center.resolve()
+    target = control / ".meta/inventory.json"
+    expected = file_text_checksum(target)
+    if expected is None:
+        raise InventoryPlanConflict("inventory baseline is missing")
+    previous = load_inventory(target)
+    current = _current_baseline_with_scope(vault, control, previous, previous.scope)
+    control_relative = control.relative_to(vault).as_posix()
+    matches = _mutation_targets(current, control_relative, requested_path)
+    documents = dict(current.documents)
+    affected = 0
+    for path in matches:
+        old = documents[path]
+        if old.disposition != "ignored" or old.ignore_reason != reason.strip():
+            affected += 1
+        documents[path] = InventoryDocument("ignored", old.observed_signature, reason.strip())
+    updated = InventoryBaseline(1, current.scope, documents, current.sensitive_scopes)
+    return _update_plan("ignore", updated, expected, affected_count=affected)
+
+
+def plan_inventory_unignore(
+    vault_root: Path,
+    control_center: Path,
+    requested_path: str,
+) -> InventoryMutationPlan:
+    vault = vault_root.resolve()
+    control = control_center.resolve()
+    target = control / ".meta/inventory.json"
+    expected = file_text_checksum(target)
+    if expected is None:
+        raise InventoryPlanConflict("inventory baseline is missing")
+    previous = load_inventory(target)
+    current = _current_baseline_with_scope(vault, control, previous, previous.scope)
+    control_relative = control.relative_to(vault).as_posix()
+    matches = _mutation_targets(current, control_relative, requested_path)
+    documents = dict(current.documents)
+    affected = 0
+    for path in matches:
+        old = documents[path]
+        if old.disposition == "ignored":
+            documents[path] = InventoryDocument("discovered", old.observed_signature, None)
+            affected += 1
+    updated = InventoryBaseline(1, current.scope, documents, current.sensitive_scopes)
+    return _update_plan("unignore", updated, expected, affected_count=affected)
+
+
+def apply_inventory_mutation(
+    vault_root: Path,
+    control_center: Path,
+    action: str,
+    confirmed_plan_checksum: str,
+    *,
+    scope: InventoryScope | None = None,
+    requested_path: str | None = None,
+    reason: str | None = None,
+) -> InventoryMutationResult:
+    planners = {
+        "configure": lambda: plan_inventory_configure(vault_root, control_center, scope),
+        "ignore": lambda: plan_inventory_ignore(vault_root, control_center, requested_path, reason),
+        "unignore": lambda: plan_inventory_unignore(vault_root, control_center, requested_path),
+    }
+    if action not in planners:
+        raise InventoryPlanConflict("unsupported inventory mutation action")
+    if action == "configure" and scope is None:
+        raise InventoryPlanConflict("configure requires an Inventory scope")
+    control = control_center.resolve()
+    meta = control / ".meta"
+    kind = f"inventory-{action}"
+    expected_key = _digest_payload({"kind": kind, "plan": confirmed_plan_checksum})
+    lock = VaultLock(
+        meta / "lock.json",
+        allowed_root=control,
+        command=kind.replace("-", " "),
+        target=control,
+    )
+    with lock:
+        for existing in load_operations(meta / "operations.json").values():
+            if existing.kind == kind and existing.idempotency_key == expected_key and existing.status == "completed":
+                return InventoryMutationResult("completed", existing.operation_id, existing.idempotency_key, True)
+        refreshed = planners[action]()
+        if refreshed.plan_checksum != confirmed_plan_checksum:
+            raise InventoryPlanConflict("confirmed plan checksum no longer matches current state")
+        operation = begin_operation(
+            meta / "operations.json",
+            allowed_root=control,
+            kind=kind,
+            idempotency_key=refreshed.idempotency_key,
+            record_ids=[".meta/inventory.json"],
+            reuse_completed=True,
+        )
+        step = "write-inventory"
+        try:
+            update_operation(meta / "operations.json", operation.operation_id, allowed_root=control, status="running", current_step=step)
+            atomic_write_json(
+                meta / "inventory.json",
+                inventory_payload(refreshed.baseline),
+                allowed_root=control,
+                expected_checksum=refreshed.expected_inventory_checksum,
+            )
+            step = "append-change-log"
+            update_operation(meta / "operations.json", operation.operation_id, allowed_root=control, status="running", current_step=step)
+            append_change_event(
+                meta / "change-log.jsonl",
+                allowed_root=control,
+                operation_id=operation.operation_id,
+                kind=kind,
+                record_ids=[".meta/inventory.json"],
+                old_checksums={"inventory.json": refreshed.expected_inventory_checksum},
+                new_checksums={"inventory.json": file_text_checksum(meta / "inventory.json")},
+                result="completed",
+                idempotency_key=refreshed.idempotency_key,
+                summary={"affected_count": refreshed.affected_count},
+            )
+            update_operation(meta / "operations.json", operation.operation_id, allowed_root=control, status="completed", current_step="complete")
+            return InventoryMutationResult("completed", operation.operation_id, refreshed.idempotency_key)
+        except BaseException as error:
+            try:
+                update_operation(meta / "operations.json", operation.operation_id, allowed_root=control, status="failed", current_step=step, error=str(error))
             except BaseException:
                 pass
             if isinstance(error, InventoryPlanConflict):

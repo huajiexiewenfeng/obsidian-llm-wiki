@@ -44,9 +44,13 @@ from llm_wiki_core.inventory import (
     InventoryWriteError,
     SensitiveScope,
     apply_inventory_initialize,
+    apply_inventory_mutation,
     default_inventory_scope,
     inspect_inventory,
     plan_inventory_initialize,
+    plan_inventory_configure,
+    plan_inventory_ignore,
+    plan_inventory_unignore,
 )
 from llm_wiki_core.page import apply_pages, load_page_apply_payload, plan_page_apply
 from llm_wiki_core.projection import (
@@ -506,6 +510,59 @@ def add_inventory_scope_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sensitive-scope", action="append")
 
 
+def run_inventory_mutation(args: argparse.Namespace) -> int:
+    root = resolve_root(root_arg=args.root, cwd=args.cwd, user_config_path=args.user_config)
+    if root.error is not None or root.vault_root is None or root.control_center is None:
+        payload = root_to_dict(root)
+        print_apply_payload(payload, args.format)
+        return root_exit_code(root)
+    try:
+        scope = (
+            inventory_scope_from_args(root.vault_root, root.control_center, args)
+            if args.command == "configure"
+            else None
+        )
+        planners = {
+            "configure": lambda: plan_inventory_configure(root.vault_root, root.control_center, scope),
+            "ignore": lambda: plan_inventory_ignore(root.vault_root, root.control_center, args.path, args.reason),
+            "unignore": lambda: plan_inventory_unignore(root.vault_root, root.control_center, args.path),
+        }
+        if not args.confirm:
+            plan = planners[args.command]()
+            payload = plan.to_public_dict()
+            payload["status"] = "confirmation-required"
+            code = 1
+        elif not args.plan_checksum:
+            payload = {"error": {"check": "missing-plan-checksum", "message": "--plan-checksum is required with --confirm"}}
+            code = 2
+        else:
+            result = apply_inventory_mutation(
+                root.vault_root,
+                root.control_center,
+                args.command,
+                args.plan_checksum,
+                scope=scope,
+                requested_path=getattr(args, "path", None),
+                reason=getattr(args, "reason", None),
+            )
+            payload = {
+                "status": result.status,
+                "operation_id": result.operation_id,
+                "idempotency_key": result.idempotency_key,
+                "idempotent": result.idempotent,
+                "confirmation_required": False,
+            }
+            code = 0
+    except (InventoryValidationError, InventoryLoadError, InventoryPlanConflict, SnapshotConflict) as error:
+        payload = {"error": {"check": "inventory-conflict", "message": str(error)}}
+        code = 2
+    except (InventoryWriteError, LockTimeout, WriterError, OSError) as error:
+        payload = {"error": {"check": "inventory-write-failed", "message": str(error)}}
+        code = 3
+    print_apply_payload(payload, args.format)
+    return code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="llm-wiki")
     groups = parser.add_subparsers(dest="group", required=True)
@@ -570,6 +627,34 @@ def build_parser() -> argparse.ArgumentParser:
     add_inventory_scope_arguments(inventory_initialize)
     inventory_initialize.add_argument("--format", choices=("text", "json"), default="json")
     inventory_initialize.set_defaults(handler=run_inventory_initialize)
+    inventory_configure = inventory_commands.add_parser("configure")
+    inventory_configure.add_argument("--root")
+    inventory_configure.add_argument("--cwd", default=str(Path.cwd()))
+    inventory_configure.add_argument("--user-config")
+    inventory_configure.add_argument("--confirm", action="store_true")
+    inventory_configure.add_argument("--plan-checksum")
+    inventory_configure.add_argument("--format", choices=("text", "json"), default="json")
+    add_inventory_scope_arguments(inventory_configure)
+    inventory_configure.set_defaults(handler=run_inventory_mutation)
+    inventory_ignore = inventory_commands.add_parser("ignore")
+    inventory_ignore.add_argument("--root")
+    inventory_ignore.add_argument("--cwd", default=str(Path.cwd()))
+    inventory_ignore.add_argument("--user-config")
+    inventory_ignore.add_argument("--path", required=True)
+    inventory_ignore.add_argument("--reason", required=True)
+    inventory_ignore.add_argument("--confirm", action="store_true")
+    inventory_ignore.add_argument("--plan-checksum")
+    inventory_ignore.add_argument("--format", choices=("text", "json"), default="json")
+    inventory_ignore.set_defaults(handler=run_inventory_mutation)
+    inventory_unignore = inventory_commands.add_parser("unignore")
+    inventory_unignore.add_argument("--root")
+    inventory_unignore.add_argument("--cwd", default=str(Path.cwd()))
+    inventory_unignore.add_argument("--user-config")
+    inventory_unignore.add_argument("--path", required=True)
+    inventory_unignore.add_argument("--confirm", action="store_true")
+    inventory_unignore.add_argument("--plan-checksum")
+    inventory_unignore.add_argument("--format", choices=("text", "json"), default="json")
+    inventory_unignore.set_defaults(handler=run_inventory_mutation)
     return parser
 
 

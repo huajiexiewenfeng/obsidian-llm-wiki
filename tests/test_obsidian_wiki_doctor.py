@@ -219,6 +219,37 @@ class InventoryDoctorIntegrationTests(unittest.TestCase):
         }
         self.assertEqual(dimensions["Ingest traceability"]["score"], 5)
 
+    def test_inventory_text_is_grouped_but_json_keeps_all_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            vault = control.parent
+            documents = {}
+            for index in range(25):
+                relative = f"notes/doc-{index:02d}.md"
+                source = write(vault / relative, str(index))
+                documents[relative] = InventoryDocument(
+                    "discovered",
+                    ObservedSignature(**file_fingerprint(source)),
+                    None,
+                )
+            write_inventory_baseline(control, documents)
+
+            text_result = run_doctor(
+                "validate", "--root", str(control), "--format", "text", "--fail-on", "none"
+            )
+            json_result = run_doctor(
+                "validate", "--root", str(control), "--format", "json", "--fail-on", "none"
+            )
+
+        self.assertEqual(text_result.returncode, 0, text_result.stderr)
+        self.assertIn("5 more", text_result.stdout)
+        self.assertNotIn("notes/doc-24.md", text_result.stdout)
+        json_findings = [
+            item for item in json.loads(json_result.stdout)
+            if item["check"] == "uningested-source"
+        ]
+        self.assertEqual(len(json_findings), 25)
+
 
 class RootResolutionContinuationTests(unittest.TestCase):
     def test_validate_reports_invalid_explicit_root_as_error(self):

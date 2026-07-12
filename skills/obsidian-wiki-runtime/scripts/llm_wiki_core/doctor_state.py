@@ -39,7 +39,15 @@ STATE_FILE_NAMES = (
 )
 SEVERITY_RANK = {"ERROR": 0, "WARN": 1, "INFO": 2}
 AUDITED_OPERATION_KINDS = frozenset(
-    {"state-init", "ingest-apply", "page-apply", "inventory-initialize"}
+    {
+        "state-init",
+        "ingest-apply",
+        "page-apply",
+        "inventory-initialize",
+        "inventory-configure",
+        "inventory-ignore",
+        "inventory-unignore",
+    }
 )
 
 

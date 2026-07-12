@@ -193,23 +193,23 @@
 - Produces: `plan_inventory_configure(...)`、`plan_inventory_ignore(...)`、`plan_inventory_unignore(...)`。
 - CLI: `inventory configure`、`inventory ignore`、`inventory unignore`。
 
-- [ ] **Step 1: 写 disposition 和范围迁移失败测试**
+- [x] **Step 1: 写 disposition 和范围迁移失败测试**
 
   覆盖新增普通文档为 discovered、离开范围移除、进入敏感范围移除逐文件记录、离开敏感范围重新 discovered、ignore 必须有非敏感 reason、unignore 恢复 discovered、目录批量影响数量确定。
 
-- [ ] **Step 2: 实现三类计划**
+- [x] **Step 2: 实现三类计划**
 
   所有计划返回 action、affected_count、scope diff、expected inventory checksum、idempotency key 和 plan checksum；目标路径必须是 Vault 相对普通文件或批准目录，拒绝绝对路径、`..`、控制中心和敏感汇总内部路径。
 
-- [ ] **Step 3: 复用统一事务执行器**
+- [x] **Step 3: 复用统一事务执行器**
 
   operation kind 分别为 `inventory-configure`、`inventory-ignore`、`inventory-unignore`；把三者加入 Doctor audited kinds。确认前在锁内重算并比较计划；重复 confirmation 不重复 change event。
 
-- [ ] **Step 4: 注册 CLI 并验证 dry-run**
+- [x] **Step 4: 注册 CLI 并验证 dry-run**
 
   dry-run 都输出影响数量和 `plan_checksum`，退出 1；只有 `--confirm --plan-checksum` 写入。文本输出不得展开敏感文件名。
 
-- [ ] **Step 5: 运行测试并提交**
+- [x] **Step 5: 运行测试并提交**
 
   Run: `python -m pytest tests/test_llm_wiki_inventory.py tests/test_llm_wiki_inventory_cli.py tests/test_llm_wiki_doctor_state.py -q`
 
@@ -239,11 +239,11 @@
 
   在 `run_checks()` 中调用 Inventory Core 并把 finding 转换为现有 `Finding`。不要在 Doctor 模块复制扫描规则。扫描不完整时输出明确 warning，不生成“未发现未摄入文档”的完整性结论。
 
-- [ ] **Step 4: 实现报告降噪**
+- [x] **Step 4: 实现报告降噪**
 
   文本按一级目录和 check 聚合，每组最多 20 个普通示例并显示剩余数量；JSON 保留全部非敏感 finding。所有输出继续通过 `safe_finding`。
 
-- [ ] **Step 5: 运行测试并提交**
+- [x] **Step 5: 运行测试并提交**
 
   Run: `python -m pytest tests/test_obsidian_wiki_doctor.py tests/test_llm_wiki_doctor_state.py tests/test_llm_wiki_inventory.py -q`
 
