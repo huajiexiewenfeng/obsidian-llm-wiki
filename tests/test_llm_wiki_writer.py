@@ -17,10 +17,12 @@ from llm_wiki_core.writer import (
     SnapshotConflict,
     VaultLock,
     append_change_event,
+    atomic_temp_prefix,
     atomic_write_json,
     begin_operation,
     classify_lock,
     file_text_checksum,
+    is_atomic_temp_name,
     update_operation,
 )
 
@@ -77,6 +79,13 @@ class VaultLockTests(unittest.TestCase):
 
 
 class SnapshotWriterTests(unittest.TestCase):
+    def test_atomic_temp_name_helpers_match_writer_pattern(self):
+        self.assertEqual(atomic_temp_prefix(Path("pages.json")), ".pages.json.")
+        self.assertTrue(is_atomic_temp_name(".pages.json.ab12.tmp"))
+        self.assertFalse(is_atomic_temp_name("pages.json.ab12.tmp"))
+        self.assertFalse(is_atomic_temp_name(".pages.json..tmp"))
+        self.assertFalse(is_atomic_temp_name(".tmp"))
+
     def test_atomic_json_is_deterministic_and_replaces_target(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / ".meta" / "sources.json"

@@ -1,7 +1,9 @@
 import json
+import socket
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +20,7 @@ from llm_wiki_core.projection import (
     render_wiki_index,
     render_wiki_log,
 )
-from llm_wiki_core.state import PageRecord, SourceRecord
+from llm_wiki_core.state import OperationRecord, PageRecord, SourceRecord
 
 
 STATE_FILES = (
@@ -151,6 +153,66 @@ def write_healthy_projections(control: Path, newline: str = "\n") -> None:
     )
 
 
+def operation_record(
+    operation_id: str = "op-1",
+    *,
+    kind: str = "ingest-apply",
+    status: str = "running",
+    record_ids: tuple[str, ...] = ("source-1",),
+    updated_at: str = "2026-07-12T00:01:00+00:00",
+) -> OperationRecord:
+    return OperationRecord(
+        operation_id=operation_id,
+        idempotency_key=f"key-{operation_id}",
+        kind=kind,
+        record_ids=record_ids,
+        current_step="write-pages" if status != "completed" else "complete",
+        status=status,
+        started_at="2026-07-12T00:00:45+00:00",
+        updated_at=updated_at,
+        error="boom" if status == "failed" else None,
+    )
+
+
+def write_operations(control: Path, *operations: OperationRecord) -> None:
+    write_registry(
+        control / ".meta/operations.json",
+        {item.operation_id: item.to_dict() for item in operations},
+    )
+
+
+def write_lock(
+    control: Path,
+    *,
+    host: str | None = None,
+    pid: int = 123,
+    acquired_at: str = "2026-07-12T00:00:30+00:00",
+    command: str = "ingest apply",
+    target: str | None = None,
+) -> None:
+    write_json(
+        control / ".meta/lock.json",
+        {
+            "lock_id": "lock-1",
+            "host": host or socket.gethostname(),
+            "pid": pid,
+            "acquired_at": acquired_at,
+            "command": command,
+            "target": target or str(control.resolve()),
+        },
+    )
+
+
+def write_completion_event(control: Path, operation: OperationRecord) -> None:
+    payload = event()
+    payload["operation_id"] = operation.operation_id
+    payload["kind"] = operation.kind
+    (control / ".meta/change-log.jsonl").write_text(
+        json.dumps(payload, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 class DoctorStateLoadingTests(unittest.TestCase):
     def test_absent_meta_disables_phase4_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -265,6 +327,224 @@ class ChangeLogLoadingTests(unittest.TestCase):
             [issue.check for issue in issues],
             ["invalid-state-file"],
         )
+
+
+class OperationLockConsistencyTests(unittest.TestCase):
+    NOW = datetime(2026, 7, 12, 0, 5, tzinfo=timezone.utc)
+
+    def test_running_operation_with_live_matching_lock_is_info(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            operation = operation_record()
+            write_operations(control, operation)
+            write_lock(control)
+
+            issues = inspect_state_consistency(
+                control,
+                now=self.NOW,
+                pid_exists=lambda pid: True,
+            )
+
+        active = [item for item in issues if item.check == "active-operation"]
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0].severity, "INFO")
+        self.assertNotIn("orphan-running-operation", [item.check for item in issues])
+
+    def test_running_operation_without_lock_is_orphan_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_operations(control, operation_record())
+
+            issues = inspect_state_consistency(control, now=self.NOW)
+
+        orphan = [item for item in issues if item.check == "orphan-running-operation"]
+        self.assertEqual(len(orphan), 1)
+        self.assertEqual(orphan[0].severity, "ERROR")
+
+    def test_stale_lock_reports_lock_and_running_operation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_operations(control, operation_record())
+            write_lock(
+                control,
+                acquired_at=(self.NOW - timedelta(minutes=20)).isoformat(),
+            )
+
+            issues = inspect_state_consistency(
+                control,
+                now=self.NOW,
+                pid_exists=lambda pid: False,
+            )
+
+        checks = [item.check for item in issues]
+        self.assertIn("stale-lock", checks)
+        self.assertIn("running-operation-with-stale-lock", checks)
+
+    def test_cross_host_lock_suppresses_orphan_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_operations(control, operation_record())
+            write_lock(control, host="other-host")
+
+            issues = inspect_state_consistency(
+                control,
+                now=self.NOW,
+                pid_exists=lambda pid: False,
+            )
+
+        checks = [item.check for item in issues]
+        self.assertIn("cross-host-lock", checks)
+        self.assertNotIn("orphan-running-operation", checks)
+
+    def test_invalid_lock_does_not_suppress_orphan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_operations(control, operation_record())
+            write_json(control / ".meta/lock.json", {"host": "missing-fields"})
+
+            issues = inspect_state_consistency(control, now=self.NOW)
+
+        checks = [item.check for item in issues]
+        self.assertIn("invalid-lock", checks)
+        self.assertIn("orphan-running-operation", checks)
+
+    def test_failed_operation_is_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_operations(control, operation_record(status="failed"))
+
+            issues = inspect_state_consistency(control, now=self.NOW)
+
+        failed = [item for item in issues if item.check == "failed-operation"]
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0].severity, "WARN")
+
+    def test_completed_event_with_failed_operation_reports_status_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            operation = operation_record(status="failed")
+            write_operations(control, operation)
+            write_completion_event(control, operation)
+
+            issues = inspect_state_consistency(control, now=self.NOW)
+
+        self.assertIn("operation-event-status-drift", [item.check for item in issues])
+
+    def test_completed_audited_operation_without_event_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_operations(
+                control,
+                operation_record(kind="state-init", status="completed", record_ids=()),
+            )
+
+            issues = inspect_state_consistency(control, now=self.NOW)
+
+        missing = [item for item in issues if item.check == "missing-completion-event"]
+        self.assertEqual(len(missing), 1)
+        self.assertEqual(missing[0].severity, "ERROR")
+
+    def test_projection_rebuild_does_not_require_completion_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_operations(
+                control,
+                operation_record(
+                    kind="projection-rebuild",
+                    status="completed",
+                    record_ids=(),
+                ),
+            )
+
+            issues = inspect_state_consistency(control, now=self.NOW)
+
+        self.assertNotIn("missing-completion-event", [item.check for item in issues])
+
+
+class PendingSourceConsistencyTests(unittest.TestCase):
+    def _write_pending_source(self, control: Path) -> None:
+        source = source_record(status="pending", proxy_page_id=None)
+        write_registry(
+            control / ".meta/sources.json",
+            {source.source_id: source.to_dict()},
+        )
+
+    def test_pending_without_related_operation_is_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            self._write_pending_source(control)
+
+            issues = inspect_state_consistency(control)
+
+        self.assertIn(
+            "pending-source-without-active-operation",
+            [item.check for item in issues],
+        )
+
+    def test_latest_failed_ingest_suppresses_duplicate_pending_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            self._write_pending_source(control)
+            older = operation_record(
+                "op-running-old",
+                status="running",
+                updated_at="2026-07-12T00:01:00+00:00",
+            )
+            latest = operation_record(
+                "op-failed-new",
+                status="failed",
+                updated_at="2026-07-12T00:02:00+00:00",
+            )
+            write_operations(control, older, latest)
+
+            issues = inspect_state_consistency(control)
+
+        checks = [item.check for item in issues]
+        self.assertIn("failed-operation", checks)
+        self.assertNotIn("pending-source-without-active-operation", checks)
+        failed = next(item for item in issues if item.check == "failed-operation")
+        self.assertIn("source-1", failed.recovery_hint)
+
+    def test_latest_completed_ingest_leaves_pending_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            self._write_pending_source(control)
+            write_operations(control, operation_record(status="completed"))
+
+            issues = inspect_state_consistency(control)
+
+        self.assertIn(
+            "pending-source-without-active-operation",
+            [item.check for item in issues],
+        )
+
+
+class TempFileConsistencyTests(unittest.TestCase):
+    def test_only_writer_temp_pattern_in_allowed_roots_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            control = make_phase3_control_center(base)
+            (control / ".meta/.pages.json.ab12.tmp").write_text(
+                "SECRET-TEMP",
+                encoding="utf-8",
+            )
+            (control / "wiki").mkdir()
+            (control / "wiki/.topic.md.zz99.tmp").write_text(
+                "SECRET-TEMP",
+                encoding="utf-8",
+            )
+            (control / "ingest").mkdir()
+            (control / "ingest/ordinary.tmp").write_text("x", encoding="utf-8")
+            (base / ".outside.json.aa.tmp").write_text("x", encoding="utf-8")
+
+            issues = inspect_state_consistency(control)
+
+        temps = [item for item in issues if item.check == "orphan-temp-file"]
+        self.assertEqual(
+            [item.relative_path for item in temps],
+            [".meta/.pages.json.ab12.tmp", "wiki/.topic.md.zz99.tmp"],
+        )
+        self.assertNotIn("SECRET-TEMP", str(temps))
 
 
 class SourceConsistencyTests(unittest.TestCase):

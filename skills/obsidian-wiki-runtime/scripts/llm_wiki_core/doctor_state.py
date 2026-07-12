@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,7 +25,7 @@ from .state import (
     decode_source_registry,
     registry_records,
 )
-from .writer import default_pid_exists
+from .writer import classify_lock, default_pid_exists, is_atomic_temp_name
 
 
 STATE_FILE_NAMES = (
@@ -35,6 +36,7 @@ STATE_FILE_NAMES = (
     "change-log.jsonl",
 )
 SEVERITY_RANK = {"ERROR": 0, "WARN": 1, "INFO": 2}
+AUDITED_OPERATION_KINDS = frozenset({"state-init", "ingest-apply", "page-apply"})
 
 
 @dataclass(frozen=True)
@@ -448,6 +450,272 @@ def _check_projections(
     return issues
 
 
+def _normalize_command(value: str) -> str:
+    return " ".join(value.strip().lower().replace("-", " ").split())
+
+
+def _parse_time(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed
+
+
+def _lock_matches_operation(
+    payload: Mapping[str, object],
+    operation: OperationRecord,
+    control_center: Path,
+) -> bool:
+    command = payload.get("command")
+    target = payload.get("target")
+    acquired_at = payload.get("acquired_at")
+    if not isinstance(command, str) or not isinstance(target, str):
+        return False
+    if not isinstance(acquired_at, str):
+        return False
+    if _normalize_command(command) != _normalize_command(operation.kind):
+        return False
+    try:
+        if Path(target).resolve() != control_center:
+            return False
+    except OSError:
+        return False
+    acquired = _parse_time(acquired_at)
+    started = _parse_time(operation.started_at)
+    return acquired is not None and started is not None and acquired <= started
+
+
+def _load_lock(
+    control_center: Path,
+    *,
+    now: datetime | None,
+    pid_exists: Callable[[int], bool],
+) -> tuple[str, Mapping[str, object] | None, list[ConsistencyIssue]]:
+    path = control_center / ".meta/lock.json"
+    if not path.exists():
+        return "absent", None, []
+    invalid = _issue(
+        "invalid-lock",
+        "ERROR",
+        ".meta/lock.json",
+        "Lock file is invalid and cannot prove writer ownership.",
+        hint="Review the lock file and related operations before any Maintain action.",
+    )
+    try:
+        payload = _read_json_object(path)
+    except (OSError, UnicodeError, json.JSONDecodeError, StateValidationError):
+        return "invalid", None, [invalid]
+    command = payload.get("command")
+    target = payload.get("target")
+    if not isinstance(command, str) or not command.strip() or not isinstance(target, str):
+        return "invalid", payload, [invalid]
+    try:
+        if Path(target).resolve() != control_center:
+            return "invalid", payload, [invalid]
+    except OSError:
+        return "invalid", payload, [invalid]
+    classification = classify_lock(payload, now=now, pid_exists=pid_exists)
+    if classification == "invalid":
+        return classification, payload, [invalid]
+    if classification == "stale":
+        return classification, payload, [
+            _issue(
+                "stale-lock",
+                "WARN",
+                ".meta/lock.json",
+                "Same-host lock is older than the writer TTL and its PID is absent.",
+                hint="Have Maintain isolate the stale lock only after user confirmation.",
+            )
+        ]
+    if classification == "cross-host":
+        return classification, payload, [
+            _issue(
+                "cross-host-lock",
+                "WARN",
+                ".meta/lock.json",
+                "Lock belongs to another host and cannot be proven stale locally.",
+                hint="Verify the remote writer before taking any recovery action.",
+            )
+        ]
+    return classification, payload, []
+
+
+def _check_operations(
+    control_center: Path,
+    snapshot: DoctorStateSnapshot,
+    *,
+    now: datetime | None,
+    pid_exists: Callable[[int], bool],
+) -> list[ConsistencyIssue]:
+    classification, lock_payload, issues = _load_lock(
+        control_center,
+        now=now,
+        pid_exists=pid_exists,
+    )
+    if snapshot.operations is None:
+        return issues
+
+    operations = snapshot.operations
+    running = [item for item in operations.values() if item.status == "running"]
+    matching = (
+        [
+            item
+            for item in running
+            if lock_payload is not None
+            and _lock_matches_operation(lock_payload, item, control_center)
+        ]
+        if classification in {"active", "stale", "cross-host"}
+        else []
+    )
+    newest_match = max(matching, key=lambda item: (item.updated_at, item.operation_id), default=None)
+
+    for operation in sorted(operations.values(), key=lambda item: item.operation_id):
+        if operation.status == "failed":
+            related = ", ".join(operation.record_ids)
+            suffix = f" Related records: {related}." if related else ""
+            issues.append(
+                _issue(
+                    "failed-operation",
+                    "WARN",
+                    ".meta/operations.json",
+                    f"Operation {operation.operation_id} is failed.{suffix}",
+                    hint=(
+                        "Review the operation step, payload, change event, and related records"
+                        f" before retrying.{suffix}"
+                    ),
+                )
+            )
+        if operation.status != "running":
+            continue
+        if classification == "active" and operation is newest_match:
+            issues.append(
+                _issue(
+                    "active-operation",
+                    "INFO",
+                    ".meta/operations.json",
+                    f"Operation {operation.operation_id} matches the active writer lock.",
+                    hint="Allow the writer to finish before running recovery actions.",
+                )
+            )
+        elif classification == "stale" and operation in matching:
+            issues.append(
+                _issue(
+                    "running-operation-with-stale-lock",
+                    "ERROR",
+                    ".meta/operations.json",
+                    f"Running operation {operation.operation_id} only has a stale lock.",
+                    hint="Review operation progress before isolating the stale lock.",
+                )
+            )
+        elif classification == "cross-host" and operation in matching:
+            continue
+        else:
+            issues.append(
+                _issue(
+                    "orphan-running-operation",
+                    "ERROR",
+                    ".meta/operations.json",
+                    f"Running operation {operation.operation_id} has no matching active lock.",
+                    hint="Review the operation and lock evidence before retry or rollback.",
+                )
+            )
+
+    if snapshot.events is None:
+        return issues
+    completed_events = {
+        str(item.get("operation_id"))
+        for item in snapshot.events
+        if item.get("result") == "completed" and isinstance(item.get("operation_id"), str)
+    }
+    for operation_id in sorted(completed_events):
+        operation = operations.get(operation_id)
+        if operation is not None and operation.status != "completed":
+            issues.append(
+                _issue(
+                    "operation-event-status-drift",
+                    "WARN",
+                    ".meta/operations.json",
+                    f"Operation {operation_id} has a completion event but is not completed.",
+                    hint="Reconcile the operation status from the authoritative change event.",
+                )
+            )
+    for operation in sorted(operations.values(), key=lambda item: item.operation_id):
+        if (
+            operation.status == "completed"
+            and operation.kind in AUDITED_OPERATION_KINDS
+            and operation.operation_id not in completed_events
+        ):
+            issues.append(
+                _issue(
+                    "missing-completion-event",
+                    "ERROR",
+                    ".meta/change-log.jsonl",
+                    f"Completed operation {operation.operation_id} has no completion event.",
+                    hint="Review the operation and change log before retrying the original payload.",
+                )
+            )
+    return issues
+
+
+def _check_pending_sources(snapshot: DoctorStateSnapshot) -> list[ConsistencyIssue]:
+    if snapshot.sources is None or snapshot.operations is None:
+        return []
+    issues: list[ConsistencyIssue] = []
+    for source_id, source in sorted(snapshot.sources.items()):
+        if source.status != "pending":
+            continue
+        related = [
+            operation
+            for operation in snapshot.operations.values()
+            if operation.kind == "ingest-apply" and source_id in operation.record_ids
+        ]
+        latest = max(
+            related,
+            key=lambda operation: (operation.updated_at, operation.operation_id),
+            default=None,
+        )
+        if latest is not None and latest.status in {"running", "failed"}:
+            continue
+        issues.append(
+            _issue(
+                "pending-source-without-active-operation",
+                "WARN",
+                ".meta/sources.json",
+                f"Pending source {source_id} has no active ingest operation.",
+                hint="Review source state and related operations before retrying ingest.",
+            )
+        )
+    return issues
+
+
+def _check_temp_files(control_center: Path) -> list[ConsistencyIssue]:
+    issues: list[ConsistencyIssue] = []
+    for relative_root in (".meta", "wiki", "ingest"):
+        root = control_center / relative_root
+        if not root.is_dir():
+            continue
+        for directory, _, filenames in os.walk(root, followlinks=False):
+            directory_path = Path(directory)
+            for name in filenames:
+                if not is_atomic_temp_name(name):
+                    continue
+                path = directory_path / name
+                relative_path = path.relative_to(control_center).as_posix()
+                issues.append(
+                    _issue(
+                        "orphan-temp-file",
+                        "WARN",
+                        relative_path,
+                        "Writer-style temporary file remains in the control center.",
+                        hint="Confirm there is no active writer before asking Maintain to remove it.",
+                    )
+                )
+    return issues
+
+
 def load_doctor_state(
     control_center: Path,
 ) -> tuple[DoctorStateSnapshot, tuple[ConsistencyIssue, ...]]:
@@ -532,7 +800,6 @@ def inspect_state_consistency(
     now: datetime | None = None,
     pid_exists: Callable[[int], bool] = default_pid_exists,
 ) -> tuple[ConsistencyIssue, ...]:
-    del now, pid_exists
     snapshot, load_issues = load_doctor_state(control_center)
     if not snapshot.meta_enabled or snapshot.schema is None:
         return load_issues
@@ -541,4 +808,14 @@ def inspect_state_consistency(
     issues.extend(_check_sources(resolved, snapshot))
     issues.extend(_check_pages(resolved, snapshot))
     issues.extend(_check_projections(resolved, snapshot))
+    issues.extend(
+        _check_operations(
+            resolved,
+            snapshot,
+            now=now,
+            pid_exists=pid_exists,
+        )
+    )
+    issues.extend(_check_pending_sources(snapshot))
+    issues.extend(_check_temp_files(resolved))
     return _sort_issues(issues)

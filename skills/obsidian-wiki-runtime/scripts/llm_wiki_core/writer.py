@@ -36,6 +36,21 @@ class SnapshotConflict(WriterError):
     exit_code = 2
 
 
+ATOMIC_TEMP_SUFFIX = ".tmp"
+
+
+def atomic_temp_prefix(target: Path) -> str:
+    return f".{target.name}."
+
+
+def is_atomic_temp_name(name: str) -> bool:
+    if not name.startswith(".") or not name.endswith(ATOMIC_TEMP_SUFFIX):
+        return False
+    payload = name[1 : -len(ATOMIC_TEMP_SUFFIX)]
+    target, separator, random_token = payload.rpartition(".")
+    return bool(separator and target and random_token)
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -174,8 +189,8 @@ def atomic_write_text(
     if expected_checksum is not None and current_checksum != expected_checksum:
         raise SnapshotConflict(f"snapshot_conflict: {safe_path}")
     fd, temp_name = tempfile.mkstemp(
-        prefix=f".{safe_path.name}.",
-        suffix=".tmp",
+        prefix=atomic_temp_prefix(safe_path),
+        suffix=ATOMIC_TEMP_SUFFIX,
         dir=safe_path.parent,
     )
     temp_path = Path(temp_name)
