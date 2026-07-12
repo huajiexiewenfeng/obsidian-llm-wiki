@@ -8,7 +8,7 @@
 | `2026-07-11-obsidian-wikilink-resolution` | bug | verified-agent-local | `bugs/2026-07-11-obsidian-wikilink-resolution.md` | `handoff/2026-07-11-obsidian-wikilink-resolution-handoff.md` |
 | `obsidian-v02-phase3-ingest-projection` | requirement | implemented-agent-local | `requirements/obsidian-v02-phase3-ingest-projection.md` | `handoff/obsidian-v02-phase3-ingest-projection-handoff.md` |
 | `obsidian-v02-phase4-doctor-consistency` | requirement | merged-and-pushed-agent-local | `requirements/obsidian-v02-phase4-doctor-consistency.md` | `handoff/obsidian-v02-phase4-doctor-consistency-handoff.md` |
-| `obsidian-v02-phase31-archive-import` | requirement | implemented-passed-agent-local | `requirements/obsidian-v02-phase31-archive-import.md` | `handoff/obsidian-v02-phase31-archive-import-handoff.md` |
+| `obsidian-v02-phase31-archive-import` | requirement | merged-local-passed-agent-local | `requirements/obsidian-v02-phase31-archive-import.md` | `handoff/obsidian-v02-phase31-archive-import-handoff.md` |
 
 ## Entry Points
 

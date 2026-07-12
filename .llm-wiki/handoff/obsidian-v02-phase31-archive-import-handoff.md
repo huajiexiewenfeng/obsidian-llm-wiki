@@ -2,9 +2,9 @@
 
 ## Status
 
-- implementation: complete on `codex/v02-phase31-archive-import` at `e121f56` plus finish-sync commit
+- implementation: merged locally into `main` at `bb779eb`; integration-status sync follows
 - verification: passed-agent-local
-- integration: not yet merged or pushed by this flow
+- integration: local `main` merge verified; not pushed to `origin`
 
 ## Delivered
 
@@ -27,4 +27,4 @@
 
 ## Next Gate
 
-Choose branch integration: local merge, push/PR, or keep the branch. After integration, update final commit/remote status. v0.3 Inventory remains separate.
+Optionally push local `main` after reviewing the preserved unrelated user changes. v0.3 Inventory remains separate.

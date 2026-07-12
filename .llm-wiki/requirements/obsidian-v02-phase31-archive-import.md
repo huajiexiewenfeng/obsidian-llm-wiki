@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: Obsidian LLM Wiki v0.2 Phase 3.1 Archive Import
-- status: implemented-passed-agent-local
+- status: merged-local-passed-agent-local
 - flow_id: obsidian-v02-phase31-archive-import
 - parent_flow_id: obsidian-v02-phase3-ingest-projection
 
