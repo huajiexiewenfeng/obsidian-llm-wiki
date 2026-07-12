@@ -6,6 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Mapping
 
+from .managed import (
+    MANAGED_END,
+    MANAGED_START,
+    ManagedConflict,
+    canonical_managed_body,
+    inspect_managed_page,
+    inspect_projection_region,
+)
+from .projection import render_ingest_index, render_wiki_index, render_wiki_log
 from .state import (
     OperationRecord,
     PageRecord,
@@ -173,6 +182,272 @@ def _invalid_state_issue(name: str, error: BaseException) -> ConsistencyIssue:
     )
 
 
+def _read_text_preserving_newlines(path: Path) -> str:
+    with path.open("r", encoding="utf-8", newline="") as stream:
+        return stream.read()
+
+
+def _safe_registered_path(
+    control_center: Path,
+    record: PageRecord,
+) -> tuple[Path | None, ConsistencyIssue | None]:
+    candidate = control_center / record.relative_path
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(control_center)
+    except (OSError, ValueError):
+        return (
+            None,
+            _issue(
+                "unsafe-registered-path",
+                "ERROR",
+                record.relative_path,
+                f"Registered page {record.page_id} resolves outside the control center.",
+                hint="Repair the page registry path before reading or updating this page.",
+            ),
+        )
+    return resolved, None
+
+
+def _check_sources(
+    control_center: Path,
+    snapshot: DoctorStateSnapshot,
+) -> list[ConsistencyIssue]:
+    if snapshot.sources is None:
+        return []
+    issues: list[ConsistencyIssue] = []
+    for source_id, source in sorted(snapshot.sources.items()):
+        if source.status == "failed":
+            issues.append(
+                _issue(
+                    "failed-source",
+                    "WARN",
+                    ".meta/sources.json",
+                    f"Source {source_id} is marked failed.",
+                    hint="Review the failed source and its latest ingest operation before retrying.",
+                )
+            )
+        if source.status != "processed":
+            continue
+        if not source.proxy_page_id:
+            issues.append(
+                _issue(
+                    "processed-source-missing-proxy",
+                    "ERROR",
+                    ".meta/sources.json",
+                    f"Processed source {source_id} has no proxy page ID.",
+                    hint="Repair the source-to-proxy registry relationship before continuing.",
+                )
+            )
+            continue
+        if snapshot.pages is None:
+            continue
+        page = snapshot.pages.get(source.proxy_page_id)
+        if page is None:
+            issues.append(
+                _issue(
+                    "processed-source-missing-proxy",
+                    "ERROR",
+                    ".meta/sources.json",
+                    f"Processed source {source_id} references an unknown proxy page.",
+                    hint="Restore the proxy page record or repair the source registry reference.",
+                )
+            )
+            continue
+        target, unsafe = _safe_registered_path(control_center, page)
+        if unsafe is None and target is not None and not target.is_file():
+            issues.append(
+                _issue(
+                    "source-proxy-file-missing",
+                    "ERROR",
+                    page.relative_path,
+                    f"Source proxy file for {source_id} is missing.",
+                    hint="Restore the registered proxy Markdown file before retrying ingest.",
+                )
+            )
+    return issues
+
+
+def _frontmatter_matches(record: PageRecord, fields: Mapping[str, object]) -> bool:
+    source_ids = fields.get("llm_wiki_source_ids")
+    return (
+        fields.get("llm_wiki_page_id") == record.page_id
+        and fields.get("llm_wiki_page_type") == record.page_type
+        and isinstance(source_ids, list)
+        and all(isinstance(item, str) for item in source_ids)
+        and tuple(sorted(source_ids)) == tuple(sorted(record.source_ids))
+    )
+
+
+def _check_pages(
+    control_center: Path,
+    snapshot: DoctorStateSnapshot,
+) -> list[ConsistencyIssue]:
+    if snapshot.pages is None:
+        return []
+    issues: list[ConsistencyIssue] = []
+    registered_paths: set[str] = set()
+
+    for _, record in sorted(snapshot.pages.items()):
+        registered_paths.add(record.relative_path.casefold())
+        target, unsafe = _safe_registered_path(control_center, record)
+        if unsafe is not None:
+            issues.append(unsafe)
+            continue
+        if target is None or not target.is_file():
+            issues.append(
+                _issue(
+                    "registered-page-missing",
+                    "ERROR",
+                    record.relative_path,
+                    f"Registered page {record.page_id} is missing.",
+                    hint="Restore the page file or repair the page registry entry.",
+                )
+            )
+            continue
+        try:
+            page = inspect_managed_page(_read_text_preserving_newlines(target))
+        except (OSError, UnicodeError, ManagedConflict) as error:
+            issues.append(
+                _issue(
+                    "managed-marker-conflict",
+                    "ERROR",
+                    record.relative_path,
+                    f"Registered page {record.page_id} cannot be safely parsed ({error.__class__.__name__}).",
+                    hint="Review the managed/frontmatter markers before applying any page repair.",
+                )
+            )
+            continue
+        if not _frontmatter_matches(record, page.fields):
+            issues.append(
+                _issue(
+                    "page-frontmatter-drift",
+                    "ERROR",
+                    record.relative_path,
+                    f"Managed frontmatter for {record.page_id} differs from the page registry.",
+                    hint="Reconcile page identity, type, and source IDs before applying content.",
+                )
+            )
+        mirror = page.fields.get("llm_wiki_managed_checksum")
+        if (
+            mirror != page.computed_checksum
+            or record.managed_checksum != page.computed_checksum
+        ):
+            issues.append(
+                _issue(
+                    "managed-checksum-drift",
+                    "ERROR",
+                    record.relative_path,
+                    f"Managed checksum evidence for {record.page_id} is inconsistent.",
+                    hint="Review the current managed region and registry checksum before page apply.",
+                )
+            )
+
+    wiki_root = control_center / "wiki"
+    if not wiki_root.is_dir():
+        return issues
+    for path in sorted(wiki_root.rglob("*.md")):
+        try:
+            relative_path = path.relative_to(control_center).as_posix()
+        except ValueError:
+            continue
+        if relative_path.casefold() in registered_paths or not path.is_file():
+            continue
+        try:
+            text = _read_text_preserving_newlines(path)
+        except (OSError, UnicodeError):
+            continue
+        if MANAGED_START not in text and MANAGED_END not in text:
+            continue
+        issues.append(
+            _issue(
+                "orphan-managed-page",
+                "WARN",
+                relative_path,
+                "Managed Markdown page has no page registry record.",
+                hint="Ask the user whether to register the page or remove its managed identity.",
+            )
+        )
+        try:
+            inspect_managed_page(text)
+        except ManagedConflict as error:
+            issues.append(
+                _issue(
+                    "managed-marker-conflict",
+                    "ERROR",
+                    relative_path,
+                    f"Orphan managed page markers are invalid ({error.__class__.__name__}).",
+                    hint="Review marker structure before registering or changing this page.",
+                )
+            )
+    return issues
+
+
+def _check_projection(
+    control_center: Path,
+    relative_path: str,
+    expected_body: str,
+) -> list[ConsistencyIssue]:
+    target = control_center / relative_path
+    if not target.is_file():
+        return []
+    try:
+        projection = inspect_projection_region(_read_text_preserving_newlines(target))
+    except (OSError, UnicodeError, ManagedConflict) as error:
+        return [
+            _issue(
+                "projection-marker-conflict",
+                "ERROR",
+                relative_path,
+                f"Projection markers cannot be safely parsed ({error.__class__.__name__}).",
+                hint="Review projection markers before running projection rebuild.",
+            )
+        ]
+    if projection.managed_body == canonical_managed_body(expected_body):
+        return []
+    return [
+        _issue(
+            "projection-drift",
+            "WARN",
+            relative_path,
+            "Projection content differs from the authoritative state renderer.",
+            hint="Run projection rebuild dry-run and review the plan before confirmation.",
+        )
+    ]
+
+
+def _check_projections(
+    control_center: Path,
+    snapshot: DoctorStateSnapshot,
+) -> list[ConsistencyIssue]:
+    issues: list[ConsistencyIssue] = []
+    if snapshot.pages is not None:
+        issues.extend(
+            _check_projection(
+                control_center,
+                "wiki/index.md",
+                render_wiki_index(snapshot.pages),
+            )
+        )
+    if snapshot.sources is not None and snapshot.pages is not None:
+        issues.extend(
+            _check_projection(
+                control_center,
+                "ingest/index.md",
+                render_ingest_index(snapshot.sources, snapshot.pages),
+            )
+        )
+    if snapshot.events is not None:
+        issues.extend(
+            _check_projection(
+                control_center,
+                "wiki/log.md",
+                render_wiki_log(snapshot.events),
+            )
+        )
+    return issues
+
+
 def load_doctor_state(
     control_center: Path,
 ) -> tuple[DoctorStateSnapshot, tuple[ConsistencyIssue, ...]]:
@@ -258,5 +533,12 @@ def inspect_state_consistency(
     pid_exists: Callable[[int], bool] = default_pid_exists,
 ) -> tuple[ConsistencyIssue, ...]:
     del now, pid_exists
-    _, issues = load_doctor_state(control_center)
-    return issues
+    snapshot, load_issues = load_doctor_state(control_center)
+    if not snapshot.meta_enabled or snapshot.schema is None:
+        return load_issues
+    issues = list(load_issues)
+    resolved = control_center.resolve()
+    issues.extend(_check_sources(resolved, snapshot))
+    issues.extend(_check_pages(resolved, snapshot))
+    issues.extend(_check_projections(resolved, snapshot))
+    return _sort_issues(issues)

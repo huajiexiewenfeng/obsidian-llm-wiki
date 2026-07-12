@@ -12,6 +12,13 @@ from llm_wiki_core.doctor_state import (
     inspect_state_consistency,
     load_doctor_state,
 )
+from llm_wiki_core.managed import managed_checksum
+from llm_wiki_core.projection import (
+    render_ingest_index,
+    render_wiki_index,
+    render_wiki_log,
+)
+from llm_wiki_core.state import PageRecord, SourceRecord
 
 
 STATE_FILES = (
@@ -55,6 +62,93 @@ def event(sequence: int = 1) -> dict[str, object]:
         "result": "completed",
         "timestamp": "2026-07-12T00:00:00+00:00",
     }
+
+
+def write_registry(path: Path, records: dict[str, object]) -> None:
+    write_json(path, {"schema_version": 1, "records": records})
+
+
+def source_record(
+    source_id: str = "source-1",
+    *,
+    status: str = "processed",
+    proxy_page_id: str | None = "page-1",
+) -> SourceRecord:
+    return SourceRecord(
+        source_id=source_id,
+        display_path="notes/source.md",
+        canonical_path="C:/vault/notes/source.md",
+        source_type="markdown",
+        mode="summary-ingest",
+        status=status,
+        fingerprint={"size": 10, "mtime_ns": 20},
+        checksum="sha256:source",
+        proxy_page_id=proxy_page_id,
+        sensitivity="normal",
+        last_verified_at="2026-07-12T00:00:00+00:00",
+    )
+
+
+def managed_page(
+    page_id: str = "page-1",
+    *,
+    page_type: str = "source",
+    source_ids: tuple[str, ...] = ("source-1",),
+    body: str = "# Managed",
+    checksum_mirror: str | None = None,
+    newline: str = "\n",
+) -> tuple[str, str]:
+    base_fields: dict[str, object] = {
+        "llm_wiki_page_id": page_id,
+        "llm_wiki_page_type": page_type,
+        "llm_wiki_schema": 1,
+        "llm_wiki_source_ids": list(source_ids),
+    }
+    checksum = managed_checksum(base_fields, body)
+    fields = dict(base_fields)
+    fields["llm_wiki_managed_checksum"] = checksum_mirror or checksum
+    encoded = newline.join(
+        f"{key}: {json.dumps(value, ensure_ascii=False, separators=(',', ':'))}"
+        for key, value in sorted(fields.items())
+    )
+    text = (
+        f"---{newline}# llm-wiki:frontmatter:start{newline}{encoded}{newline}"
+        f"# llm-wiki:frontmatter:end{newline}---{newline}"
+        f"<!-- llm-wiki:managed:start -->{newline}{body}{newline}"
+        f"<!-- llm-wiki:managed:end -->{newline}"
+    )
+    return text, checksum
+
+
+def projection_page(body: str, newline: str = "\n") -> str:
+    normalized = body.replace("\r\n", "\n").replace("\r", "\n")
+    rendered = normalized.replace("\n", newline).rstrip("\r\n")
+    return (
+        f"<!-- llm-wiki:projection:start -->{newline}{rendered}{newline}"
+        f"<!-- llm-wiki:projection:end -->{newline}"
+    )
+
+
+def write_healthy_projections(control: Path, newline: str = "\n") -> None:
+    (control / "wiki").mkdir(parents=True, exist_ok=True)
+    (control / "ingest").mkdir(parents=True, exist_ok=True)
+    pages: dict[str, PageRecord] = {}
+    sources: dict[str, SourceRecord] = {}
+    (control / "wiki/index.md").write_text(
+        projection_page(render_wiki_index(pages), newline),
+        encoding="utf-8",
+        newline="",
+    )
+    (control / "ingest/index.md").write_text(
+        projection_page(render_ingest_index(sources, pages), newline),
+        encoding="utf-8",
+        newline="",
+    )
+    (control / "wiki/log.md").write_text(
+        projection_page(render_wiki_log(()), newline),
+        encoding="utf-8",
+        newline="",
+    )
 
 
 class DoctorStateLoadingTests(unittest.TestCase):
@@ -171,6 +265,234 @@ class ChangeLogLoadingTests(unittest.TestCase):
             [issue.check for issue in issues],
             ["invalid-state-file"],
         )
+
+
+class SourceConsistencyTests(unittest.TestCase):
+    def test_processed_source_without_proxy_id_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            source = source_record(proxy_page_id=None)
+            write_registry(
+                control / ".meta/sources.json",
+                {source.source_id: source.to_dict()},
+            )
+
+            issues = inspect_state_consistency(control)
+
+        issue = next(
+            item for item in issues if item.check == "processed-source-missing-proxy"
+        )
+        self.assertEqual(issue.severity, "ERROR")
+        self.assertEqual(issue.relative_path, ".meta/sources.json")
+        self.assertIsNotNone(issue.recovery_hint)
+
+    def test_proxy_record_with_missing_file_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            source = source_record()
+            page = PageRecord(
+                page_id="page-1",
+                relative_path="wiki/sources/source-1.md",
+                page_type="source",
+                source_ids=("source-1",),
+                managed_checksum="sha256:missing",
+            )
+            write_registry(
+                control / ".meta/sources.json",
+                {source.source_id: source.to_dict()},
+            )
+            write_registry(
+                control / ".meta/pages.json",
+                {page.page_id: page.to_dict()},
+            )
+
+            issues = inspect_state_consistency(control)
+
+        checks = [item.check for item in issues]
+        self.assertIn("source-proxy-file-missing", checks)
+        self.assertIn("registered-page-missing", checks)
+
+    def test_failed_source_is_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            source = source_record(status="failed", proxy_page_id=None)
+            write_registry(
+                control / ".meta/sources.json",
+                {source.source_id: source.to_dict()},
+            )
+
+            issues = inspect_state_consistency(control)
+
+        failed = [item for item in issues if item.check == "failed-source"]
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0].severity, "WARN")
+
+
+class PageConsistencyTests(unittest.TestCase):
+    def test_registered_page_missing_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            page = PageRecord(
+                page_id="page-1",
+                relative_path="wiki/topics/missing.md",
+                page_type="topic",
+                source_ids=(),
+                managed_checksum="sha256:missing",
+            )
+            write_registry(
+                control / ".meta/pages.json",
+                {page.page_id: page.to_dict()},
+            )
+
+            issues = inspect_state_consistency(control)
+
+        missing = [item for item in issues if item.check == "registered-page-missing"]
+        self.assertEqual(len(missing), 1)
+        self.assertEqual(missing[0].relative_path, "wiki/topics/missing.md")
+
+    def test_frontmatter_drift_is_distinct_from_checksum_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            text, checksum = managed_page(page_type="topic", source_ids=())
+            target = control / "wiki/topics/page-1.md"
+            target.parent.mkdir(parents=True)
+            target.write_text(text, encoding="utf-8", newline="")
+            record = PageRecord(
+                page_id="page-1",
+                relative_path="wiki/topics/page-1.md",
+                page_type="project",
+                source_ids=(),
+                managed_checksum=checksum,
+            )
+            write_registry(
+                control / ".meta/pages.json",
+                {record.page_id: record.to_dict()},
+            )
+
+            issues = inspect_state_consistency(control)
+
+        checks = [item.check for item in issues]
+        self.assertIn("page-frontmatter-drift", checks)
+        self.assertNotIn("managed-checksum-drift", checks)
+
+    def test_checksum_mirror_and_registry_drift_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            text, _ = managed_page(
+                page_type="topic",
+                source_ids=(),
+                checksum_mirror="sha256:frontmatter-old",
+            )
+            target = control / "wiki/topics/page-1.md"
+            target.parent.mkdir(parents=True)
+            target.write_text(text, encoding="utf-8", newline="")
+            record = PageRecord(
+                page_id="page-1",
+                relative_path="wiki/topics/page-1.md",
+                page_type="topic",
+                source_ids=(),
+                managed_checksum="sha256:registry-old",
+            )
+            write_registry(
+                control / ".meta/pages.json",
+                {record.page_id: record.to_dict()},
+            )
+
+            issues = inspect_state_consistency(control)
+
+        drift = [item for item in issues if item.check == "managed-checksum-drift"]
+        self.assertEqual(len(drift), 1)
+        self.assertEqual(drift[0].severity, "ERROR")
+
+    def test_registered_marker_conflict_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            text, checksum = managed_page(page_type="topic", source_ids=())
+            text = text.replace(
+                "<!-- llm-wiki:managed:start -->",
+                "<!-- llm-wiki:managed:start -->\n<!-- llm-wiki:managed:start -->",
+            )
+            target = control / "wiki/topics/page-1.md"
+            target.parent.mkdir(parents=True)
+            target.write_text(text, encoding="utf-8", newline="")
+            record = PageRecord(
+                page_id="page-1",
+                relative_path="wiki/topics/page-1.md",
+                page_type="topic",
+                source_ids=(),
+                managed_checksum=checksum,
+            )
+            write_registry(
+                control / ".meta/pages.json",
+                {record.page_id: record.to_dict()},
+            )
+
+            issues = inspect_state_consistency(control)
+
+        self.assertIn("managed-marker-conflict", [item.check for item in issues])
+
+    def test_unregistered_managed_page_is_orphan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            text, _ = managed_page("orphan-1", page_type="topic", source_ids=())
+            target = control / "wiki/topics/orphan.md"
+            target.parent.mkdir(parents=True)
+            target.write_text(text, encoding="utf-8", newline="")
+
+            issues = inspect_state_consistency(control)
+
+        orphan = [item for item in issues if item.check == "orphan-managed-page"]
+        self.assertEqual(len(orphan), 1)
+        self.assertEqual(orphan[0].severity, "WARN")
+        self.assertEqual(orphan[0].relative_path, "wiki/topics/orphan.md")
+
+
+class ProjectionConsistencyTests(unittest.TestCase):
+    def test_healthy_crlf_projections_have_no_projection_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_healthy_projections(control, "\r\n")
+
+            issues = inspect_state_consistency(control)
+
+        self.assertEqual(
+            [item for item in issues if item.check.startswith("projection-")],
+            [],
+        )
+
+    def test_projection_content_drift_is_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_healthy_projections(control)
+            (control / "wiki/index.md").write_text(
+                projection_page("# Drift"),
+                encoding="utf-8",
+                newline="",
+            )
+
+            issues = inspect_state_consistency(control)
+
+        drift = [item for item in issues if item.check == "projection-drift"]
+        self.assertEqual(len(drift), 1)
+        self.assertEqual(drift[0].severity, "WARN")
+        self.assertEqual(drift[0].relative_path, "wiki/index.md")
+
+    def test_projection_marker_conflict_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_healthy_projections(control)
+            (control / "wiki/log.md").write_text(
+                "<!-- llm-wiki:projection:start -->\nmissing end\n",
+                encoding="utf-8",
+            )
+
+            issues = inspect_state_consistency(control)
+
+        conflict = [
+            item for item in issues if item.check == "projection-marker-conflict"
+        ]
+        self.assertEqual(len(conflict), 1)
+        self.assertEqual(conflict[0].relative_path, "wiki/log.md")
 
 
 if __name__ == "__main__":
