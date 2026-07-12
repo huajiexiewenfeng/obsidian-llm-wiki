@@ -25,6 +25,12 @@ The source of truth for detection is scripts/obsidian_wiki_doctor.py. This file 
 - `running-operation-with-stale-lock`: a running operation is backed only by a stale lock.
 - `missing-completion-event`: an audited completed operation has no completed change event.
 - `invalid-lock`: lock JSON or required ownership fields are invalid.
+- `archive-record-missing-path`: an archive source record has no authoritative `raw/` path.
+- `unsafe-archive-path`: an archive record resolves outside its required `raw/<source-id>/` directory.
+- `archive-file-missing`: the immutable archive target recorded for a source is missing.
+- `archive-checksum-drift`: archive bytes differ from the checksum stored in the source registry.
+- `unexpected-archive-path`: a non-archive source incorrectly declares an archive path.
+- `archive-operation-target-drift`: a completed ingest event and source registry disagree on the archive target.
 
 ## WARN
 
@@ -40,7 +46,8 @@ The source of truth for detection is scripts/obsidian_wiki_doctor.py. This file 
 - `operation-event-status-drift`: a completion event exists but the operation is not completed.
 - `stale-lock`: a same-host lock exceeded the writer TTL and its PID is absent.
 - `cross-host-lock`: a remote-host lock cannot be proven stale locally.
-- `orphan-temp-file`: a writer-style atomic temporary file remains under `.meta/`, `wiki/`, or `ingest/`.
+- `orphan-temp-file`: a writer-style atomic temporary file remains under `.meta/`, `wiki/`, `ingest/`, or an enabled `raw/` archive area.
+- `unregistered-archive`: a regular file in `raw/` has no archive source record.
 
 ## INFO
 
@@ -52,3 +59,5 @@ The source of truth for detection is scripts/obsidian_wiki_doctor.py. This file 
 - `no-findings`: no blocking doctor findings were detected.
 
 These names are for reports and user explanations. If this catalog disagrees with `scripts/obsidian_wiki_doctor.py`, trust the script and update this reference later.
+
+Archive findings extend validation only. They do not change score version 1, its five dimensions, or their weights.

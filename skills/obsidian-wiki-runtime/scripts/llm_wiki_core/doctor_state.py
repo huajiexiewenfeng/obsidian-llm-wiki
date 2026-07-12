@@ -23,7 +23,9 @@ from .state import (
     StateValidationError,
     decode_page_registry,
     decode_source_registry,
+    file_checksum,
     registry_records,
+    resolve_authoritative_source_path,
 )
 from .writer import classify_lock, default_pid_exists, is_atomic_temp_name
 
@@ -265,6 +267,122 @@ def _check_sources(
                     page.relative_path,
                     f"Source proxy file for {source_id} is missing.",
                     hint="Restore the registered proxy Markdown file before retrying ingest.",
+                )
+            )
+    return issues
+
+
+def _check_archives(
+    control_center: Path,
+    snapshot: DoctorStateSnapshot,
+) -> list[ConsistencyIssue]:
+    if snapshot.sources is None:
+        return []
+    issues: list[ConsistencyIssue] = []
+    for source_id, record in sorted(snapshot.sources.items()):
+        if record.mode != "archive-import":
+            if record.archive_relative_path is not None:
+                issues.append(
+                    _issue(
+                        "unexpected-archive-path",
+                        "ERROR",
+                        ".meta/sources.json",
+                        f"Non-archive source {source_id} declares an archive path.",
+                        hint=(
+                            "Remove the archive field or correct the source mode "
+                            "through Maintain."
+                        ),
+                    )
+                )
+            continue
+        relative = record.archive_relative_path
+        if relative is None:
+            issues.append(
+                _issue(
+                    "archive-record-missing-path",
+                    "ERROR",
+                    ".meta/sources.json",
+                    f"Archive source {source_id} has no archive path.",
+                    hint=(
+                        "Review the failed ingest operation before repairing the "
+                        "source record."
+                    ),
+                )
+            )
+            continue
+        try:
+            target = resolve_authoritative_source_path(control_center, record)
+        except (OSError, StateValidationError):
+            issues.append(
+                _issue(
+                    "unsafe-archive-path",
+                    "ERROR",
+                    ".meta/sources.json",
+                    f"Archive source {source_id} has an unsafe archive path.",
+                    hint=(
+                        "Repair the archive path without reading outside the "
+                        "control center."
+                    ),
+                )
+            )
+            continue
+        if not target.is_file():
+            issues.append(
+                _issue(
+                    "archive-file-missing",
+                    "ERROR",
+                    relative,
+                    f"Archive file for {source_id} is missing.",
+                    hint=(
+                        "Review the source and operation before retrying archive import."
+                    ),
+                )
+            )
+            continue
+        try:
+            actual_checksum = file_checksum(target)
+        except OSError:
+            actual_checksum = None
+        if actual_checksum != record.checksum:
+            issues.append(
+                _issue(
+                    "archive-checksum-drift",
+                    "ERROR",
+                    relative,
+                    f"Archive checksum for {source_id} differs from the registry.",
+                    hint=(
+                        "Do not overwrite the archive; inspect the file and operation "
+                        "history."
+                    ),
+                )
+            )
+        if snapshot.events is None:
+            continue
+        event = next(
+            (
+                item
+                for item in reversed(snapshot.events)
+                if item.get("kind") == "ingest-apply"
+                and item.get("result") == "completed"
+                and isinstance(item.get("record_ids"), list)
+                and source_id in item["record_ids"]
+            ),
+            None,
+        )
+        summary = event.get("summary") if isinstance(event, dict) else None
+        if (
+            isinstance(summary, dict)
+            and summary.get("archive_target") not in (None, relative)
+        ):
+            issues.append(
+                _issue(
+                    "archive-operation-target-drift",
+                    "ERROR",
+                    relative,
+                    f"Archive event target for {source_id} differs from the registry.",
+                    hint=(
+                        "Review the completed event before repairing either path."
+                    ),
                 )
             )
     return issues
@@ -691,9 +809,21 @@ def _check_pending_sources(snapshot: DoctorStateSnapshot) -> list[ConsistencyIss
     return issues
 
 
-def _check_temp_files(control_center: Path) -> list[ConsistencyIssue]:
+def _check_temp_files(
+    control_center: Path,
+    snapshot: DoctorStateSnapshot,
+) -> list[ConsistencyIssue]:
     issues: list[ConsistencyIssue] = []
-    for relative_root in (".meta", "wiki", "ingest"):
+    archive_paths = {
+        record.archive_relative_path.casefold()
+        for record in (snapshot.sources or {}).values()
+        if record.mode == "archive-import"
+        and record.archive_relative_path is not None
+    }
+    roots = [".meta", "wiki", "ingest"]
+    if archive_paths or (control_center / "raw").is_dir():
+        roots.append("raw")
+    for relative_root in roots:
         root = control_center / relative_root
         if not root.is_dir():
             continue
@@ -701,6 +831,24 @@ def _check_temp_files(control_center: Path) -> list[ConsistencyIssue]:
             directory_path = Path(directory)
             for name in filenames:
                 if not is_atomic_temp_name(name):
+                    if relative_root != "raw":
+                        continue
+                    path = directory_path / name
+                    relative_path = path.relative_to(control_center).as_posix()
+                    if relative_path.casefold() in archive_paths:
+                        continue
+                    issues.append(
+                        _issue(
+                            "unregistered-archive",
+                            "WARN",
+                            relative_path,
+                            "File in raw/ has no archive source record.",
+                            hint=(
+                                "Review its origin before asking Maintain to register, "
+                                "move, or remove it."
+                            ),
+                        )
+                    )
                     continue
                 path = directory_path / name
                 relative_path = path.relative_to(control_center).as_posix()
@@ -806,6 +954,7 @@ def inspect_state_consistency(
     issues = list(load_issues)
     resolved = control_center.resolve()
     issues.extend(_check_sources(resolved, snapshot))
+    issues.extend(_check_archives(resolved, snapshot))
     issues.extend(_check_pages(resolved, snapshot))
     issues.extend(_check_projections(resolved, snapshot))
     issues.extend(
@@ -817,5 +966,5 @@ def inspect_state_consistency(
         )
     )
     issues.extend(_check_pending_sources(snapshot))
-    issues.extend(_check_temp_files(resolved))
+    issues.extend(_check_temp_files(resolved, snapshot))
     return _sort_issues(issues)

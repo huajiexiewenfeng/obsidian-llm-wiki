@@ -412,6 +412,39 @@ class ValidationCheckTests(unittest.TestCase):
 
 
 class Phase4IntegrationTests(unittest.TestCase):
+    def test_archive_finding_keeps_public_schema_and_score_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            raw = control / "raw/unregistered.bin"
+            raw.parent.mkdir()
+            raw.write_bytes(b"private-binary-body")
+
+            validate = run_doctor(
+                "validate",
+                "--root",
+                str(control),
+                "--format",
+                "json",
+                "--fail-on",
+                "error",
+            )
+            score = run_doctor("score", "--root", str(control), "--format", "json")
+
+        self.assertEqual(validate.returncode, 0, validate.stderr)
+        finding = next(
+            item
+            for item in json.loads(validate.stdout)
+            if item["check"] == "unregistered-archive"
+        )
+        self.assertEqual(
+            set(finding),
+            {"check", "severity", "path", "message", "line", "hint"},
+        )
+        self.assertNotIn("private-binary-body", validate.stdout)
+        score_payload = json.loads(score.stdout)
+        self.assertEqual(score_payload["score_version"], 1)
+        self.assertEqual(len(score_payload["dimensions"]), 5)
+
     def test_validate_score_and_report_do_not_modify_control_center(self):
         with tempfile.TemporaryDirectory() as tmp:
             control = make_phase3_control_center(Path(tmp))

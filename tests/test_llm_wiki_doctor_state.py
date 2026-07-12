@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import sys
 import tempfile
@@ -20,7 +21,7 @@ from llm_wiki_core.projection import (
     render_wiki_index,
     render_wiki_log,
 )
-from llm_wiki_core.state import OperationRecord, PageRecord, SourceRecord
+from llm_wiki_core.state import OperationRecord, PageRecord, SourceRecord, file_checksum
 
 
 STATE_FILES = (
@@ -88,6 +89,28 @@ def source_record(
         proxy_page_id=proxy_page_id,
         sensitivity="normal",
         last_verified_at="2026-07-12T00:00:00+00:00",
+    )
+
+
+def archive_source_record(
+    source_id: str = "archive-1",
+    *,
+    archive_relative_path: str | None = "raw/archive-1/source.bin",
+    checksum: str = "sha256:missing",
+) -> SourceRecord:
+    return SourceRecord(
+        source_id=source_id,
+        display_path="C:/external/source.bin",
+        canonical_path="C:/external/source.bin",
+        source_type="binary",
+        mode="archive-import",
+        status="pending",
+        fingerprint={"size": 3, "mtime_ns": 20},
+        checksum=checksum,
+        proxy_page_id=None,
+        sensitivity="normal",
+        last_verified_at="2026-07-12T00:00:00+00:00",
+        archive_relative_path=archive_relative_path,
     )
 
 
@@ -517,6 +540,157 @@ class PendingSourceConsistencyTests(unittest.TestCase):
             "pending-source-without-active-operation",
             [item.check for item in issues],
         )
+
+
+class ArchiveConsistencyTests(unittest.TestCase):
+    ARCHIVE_CHECKS = {
+        "archive-record-missing-path",
+        "unsafe-archive-path",
+        "archive-file-missing",
+        "archive-checksum-drift",
+        "unexpected-archive-path",
+        "archive-operation-target-drift",
+        "unregistered-archive",
+    }
+
+    def test_healthy_archive_has_no_archive_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            target = control / "raw/archive-1/source.bin"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"abc")
+            source = archive_source_record(checksum=file_checksum(target))
+            write_registry(control / ".meta/sources.json", {source.source_id: source.to_dict()})
+
+            issues = inspect_state_consistency(control)
+
+        self.assertEqual(
+            [item for item in issues if item.check in self.ARCHIVE_CHECKS],
+            [],
+        )
+
+    def test_archive_record_and_target_failures_are_distinct(self):
+        cases = (
+            (
+                "archive-record-missing-path",
+                archive_source_record(archive_relative_path=None),
+                None,
+            ),
+            (
+                "unsafe-archive-path",
+                archive_source_record(archive_relative_path="../outside.bin"),
+                None,
+            ),
+            ("archive-file-missing", archive_source_record(), None),
+            (
+                "archive-checksum-drift",
+                archive_source_record(checksum="sha256:" + "0" * 64),
+                b"actual",
+            ),
+        )
+        for expected_check, source, content in cases:
+            with self.subTest(check=expected_check), tempfile.TemporaryDirectory() as tmp:
+                control = make_phase3_control_center(Path(tmp))
+                if content is not None:
+                    target = control / Path(*source.archive_relative_path.split("/"))
+                    target.parent.mkdir(parents=True)
+                    target.write_bytes(content)
+                write_registry(
+                    control / ".meta/sources.json",
+                    {source.source_id: source.to_dict()},
+                )
+
+                issues = inspect_state_consistency(control)
+
+                issue = next(item for item in issues if item.check == expected_check)
+                self.assertEqual(issue.severity, "ERROR")
+                self.assertIsNotNone(issue.recovery_hint)
+                self.assertNotIn("C:/external", issue.message)
+
+    def test_non_archive_path_and_event_target_drift_are_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            target = control / "raw/archive-1/source.bin"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"abc")
+            archive = archive_source_record(checksum=file_checksum(target))
+            ordinary = source_record("source-ordinary", status="pending", proxy_page_id=None)
+            ordinary = SourceRecord(
+                **{**ordinary.to_dict(), "archive_relative_path": "raw/source-ordinary/x.bin"}
+            )
+            write_registry(
+                control / ".meta/sources.json",
+                {archive.source_id: archive.to_dict(), ordinary.source_id: ordinary.to_dict()},
+            )
+            change = {
+                **event(),
+                "kind": "ingest-apply",
+                "record_ids": [archive.source_id],
+                "summary": {"archive_target": "raw/archive-1/other.bin"},
+            }
+            (control / ".meta/change-log.jsonl").write_text(
+                json.dumps(change) + "\n", encoding="utf-8"
+            )
+
+            checks = {item.check for item in inspect_state_consistency(control)}
+
+        self.assertIn("unexpected-archive-path", checks)
+        self.assertIn("archive-operation-target-drift", checks)
+
+    def test_raw_scan_reports_unregistered_and_temp_without_modifying_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            raw = control / "raw/archive-1"
+            raw.mkdir(parents=True)
+            (raw / "unregistered.bin").write_bytes(b"secret-content")
+            (raw / ".source.bin.ab12.tmp").write_bytes(b"temp-content")
+            before = {
+                path.relative_to(control).as_posix(): (
+                    path.stat().st_size,
+                    path.stat().st_mtime_ns,
+                    path.read_bytes(),
+                )
+                for path in control.rglob("*")
+                if path.is_file()
+            }
+
+            issues = inspect_state_consistency(control)
+            after = {
+                path.relative_to(control).as_posix(): (
+                    path.stat().st_size,
+                    path.stat().st_mtime_ns,
+                    path.read_bytes(),
+                )
+                for path in control.rglob("*")
+                if path.is_file()
+            }
+
+        by_check = {item.check: item for item in issues}
+        self.assertIn("unregistered-archive", by_check)
+        self.assertIn("orphan-temp-file", by_check)
+        self.assertNotIn("secret-content", str(issues))
+        self.assertEqual(before, after)
+
+    def test_hard_linked_target_and_temp_only_report_the_temp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            target = control / "raw/archive-1/source.bin"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"abc")
+            temp = target.with_name(".source.bin.ab12.tmp")
+            try:
+                os.link(target, temp)
+            except OSError as error:
+                self.skipTest(f"hard links unavailable: {error}")
+            source = archive_source_record(checksum=file_checksum(target))
+            write_registry(control / ".meta/sources.json", {source.source_id: source.to_dict()})
+
+            issues = inspect_state_consistency(control)
+
+        checks = [item.check for item in issues]
+        self.assertEqual(checks.count("orphan-temp-file"), 1)
+        self.assertNotIn("archive-checksum-drift", checks)
+        self.assertNotIn("unregistered-archive", checks)
 
 
 class TempFileConsistencyTests(unittest.TestCase):
