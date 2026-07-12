@@ -1,7 +1,10 @@
+import errno
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -10,12 +13,18 @@ sys.path.insert(0, str(RUNTIME_SCRIPTS))
 
 from llm_wiki_core.archive import (
     ArchiveConflict,
+    ArchiveError,
+    ArchiveWriteError,
+    cleanup_prepared_archive,
     archive_relative_path,
     archive_source_id,
     inspect_archive_target,
+    prepare_archive,
+    publish_archive_noreplace,
     safe_archive_filename,
+    validate_prepared_archive,
 )
-from llm_wiki_core.state import SourceRecord, file_checksum
+from llm_wiki_core.state import SourceRecord, file_checksum, file_fingerprint
 
 
 def source_record(source_id: str, canonical_path: str) -> SourceRecord:
@@ -151,6 +160,204 @@ class ArchiveTargetPlannerTests(unittest.TestCase):
                     )
 
             self.assertEqual(raised.exception.check, "archive-target-changed")
+
+
+class RecordingReader:
+    def __init__(self, path: Path) -> None:
+        self.stream = path.open("rb")
+        self.read_sizes: list[int] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.stream.close()
+
+    def read(self, size: int = -1) -> bytes:
+        self.read_sizes.append(size)
+        return self.stream.read(size)
+
+    def fileno(self) -> int:
+        return self.stream.fileno()
+
+
+class ArchivePreparationTests(unittest.TestCase):
+    def _fixture(self, tmp: str, content: bytes = b"0123456789abcdefg"):
+        root = Path(tmp)
+        source = root / "source.bin"
+        control = root / "control"
+        control.mkdir()
+        source.write_bytes(content)
+        origin = file_fingerprint(source)
+        evidence = inspect_archive_target(
+            control,
+            "src-0123",
+            source.name,
+            file_checksum(source),
+            origin["size"],
+        )
+        return source, control, origin, evidence
+
+    def test_prepare_streams_in_fixed_chunks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, control, origin, evidence = self._fixture(tmp)
+            reader = RecordingReader(source)
+
+            with patch("llm_wiki_core.archive.Path.open", return_value=reader):
+                prepared = prepare_archive(
+                    source, control, evidence, origin, chunk_size=4
+                )
+
+            self.assertEqual(reader.read_sizes, [4, 4, 4, 4, 4, 4])
+            self.assertNotIn(-1, reader.read_sizes)
+            self.assertEqual(prepared.staging_path.read_bytes(), source.read_bytes())
+            cleanup_prepared_archive(prepared)
+
+    def test_prepare_rejects_source_fingerprint_drift_before_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, control, origin, evidence = self._fixture(tmp)
+            changed_origin = {**origin, "mtime_ns": origin["mtime_ns"] + 1}
+
+            with self.assertRaises(ArchiveConflict) as raised:
+                prepare_archive(source, control, evidence, changed_origin)
+
+            self.assertEqual(raised.exception.check, "source-changed")
+
+    def test_prepare_rejects_source_fingerprint_drift_during_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, control, origin, evidence = self._fixture(tmp)
+            changed = {**origin, "mtime_ns": origin["mtime_ns"] + 1}
+
+            with patch(
+                "llm_wiki_core.archive.fingerprint_from_stat",
+                side_effect=[origin, changed],
+            ):
+                with self.assertRaises(ArchiveConflict) as raised:
+                    prepare_archive(source, control, evidence, origin, chunk_size=4)
+
+            self.assertEqual(raised.exception.check, "source-changed")
+            self.assertEqual(list((control / "raw").rglob("*.tmp")), [])
+
+    def test_prepare_rejects_checksum_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, control, origin, evidence = self._fixture(tmp)
+            evidence = type(evidence)(
+                evidence.action,
+                evidence.relative_path,
+                "sha256:" + "0" * 64,
+                evidence.size,
+                evidence.fingerprint,
+                evidence.staging_required,
+                evidence.conflict,
+            )
+
+            with self.assertRaises(ArchiveConflict) as raised:
+                prepare_archive(source, control, evidence, origin, chunk_size=4)
+
+            self.assertEqual(raised.exception.check, "source-checksum-conflict")
+            self.assertEqual(list((control / "raw").rglob("*.tmp")), [])
+
+    def test_prepare_rejects_insufficient_space_before_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, control, origin, evidence = self._fixture(tmp)
+
+            with self.assertRaises(ArchiveWriteError) as raised:
+                prepare_archive(
+                    source,
+                    control,
+                    evidence,
+                    origin,
+                    disk_usage=lambda _: SimpleNamespace(free=origin["size"] - 1),
+                )
+
+            self.assertEqual(raised.exception.check, "insufficient-space")
+            self.assertEqual(list((control / "raw").rglob("*.tmp")), [])
+
+
+class ArchivePublicationTests(unittest.TestCase):
+    def _prepared(self, tmp: str, content: bytes = b"new"):
+        root = Path(tmp)
+        source = root / "source.bin"
+        control = root / "control"
+        control.mkdir()
+        source.write_bytes(content)
+        origin = file_fingerprint(source)
+        evidence = inspect_archive_target(
+            control,
+            "src-0123",
+            source.name,
+            file_checksum(source),
+            origin["size"],
+        )
+        return prepare_archive(source, control, evidence, origin)
+
+    def test_validate_prepared_archive_is_stat_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = self._prepared(tmp)
+            with patch(
+                "llm_wiki_core.archive.file_checksum",
+                side_effect=AssertionError("checksum read under lock"),
+            ):
+                validate_prepared_archive(prepared)
+            cleanup_prepared_archive(prepared)
+
+    def test_publish_never_overwrites_existing_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = self._prepared(tmp)
+            prepared.target_path.write_bytes(b"old")
+
+            with self.assertRaises(ArchiveError) as raised:
+                publish_archive_noreplace(prepared)
+
+            self.assertEqual(raised.exception.check, "archive-target-changed")
+            self.assertEqual(prepared.target_path.read_bytes(), b"old")
+            cleanup_prepared_archive(prepared)
+
+    def test_publish_reports_unsupported_atomic_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = self._prepared(tmp)
+
+            with patch(
+                "llm_wiki_core.archive.os.link",
+                side_effect=OSError(errno.EPERM, "not supported"),
+            ):
+                with self.assertRaises(ArchiveWriteError) as raised:
+                    publish_archive_noreplace(prepared)
+
+            self.assertEqual(raised.exception.check, "atomic-publish-unsupported")
+            self.assertIn("NTFS", raised.exception.hint)
+            self.assertIn("ext4", raised.exception.hint)
+            cleanup_prepared_archive(prepared)
+
+    def test_publish_reports_residual_temp_without_rolling_back_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = self._prepared(tmp)
+            real_unlink = os.unlink
+
+            def fail_only_for_staging(path, *args, **kwargs):
+                if Path(path) == prepared.staging_path:
+                    raise PermissionError("busy")
+                return real_unlink(path, *args, **kwargs)
+
+            with patch("llm_wiki_core.archive.os.unlink", side_effect=fail_only_for_staging):
+                result = publish_archive_noreplace(prepared)
+
+            self.assertTrue(result.published)
+            self.assertFalse(result.reused)
+            self.assertTrue(result.temp_cleanup_pending)
+            self.assertEqual(prepared.target_path.read_bytes(), b"new")
+            self.assertTrue(prepared.staging_path.exists())
+            cleanup_prepared_archive(prepared)
+
+    def test_cleanup_only_removes_staging_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = self._prepared(tmp)
+            prepared.target_path.write_bytes(b"target")
+
+            cleanup_prepared_archive(prepared)
+
+            self.assertFalse(prepared.staging_path.exists())
+            self.assertEqual(prepared.target_path.read_bytes(), b"target")
 
 
 if __name__ == "__main__":
