@@ -1,0 +1,4 @@
+# Local agent lifecycle state and development-only material
+.llm-wiki/
+docs/superpowers/plans/
+docs/articles/
