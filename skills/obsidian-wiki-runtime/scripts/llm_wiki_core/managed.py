@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from typing import Mapping
 
 PROJECTION_START = "<!-- llm-wiki:projection:start -->"
@@ -16,12 +17,98 @@ class ManagedConflict(ValueError):
     pass
 
 
+@dataclass(frozen=True)
+class ManagedPageSnapshot:
+    fields: Mapping[str, object]
+    managed_body: str
+    computed_checksum: str
+
+
+@dataclass(frozen=True)
+class ProjectionSnapshot:
+    managed_body: str
+
+
 def detect_newline(text: str) -> str:
     return "\r\n" if "\r\n" in text else "\n"
 
 
 def normalize_content_newlines(content: str, newline: str) -> str:
     return content.replace("\r\n", "\n").replace("\r", "\n").replace("\n", newline)
+
+
+def canonical_managed_body(content: str) -> str:
+    return content.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+
+
+def extract_single_region(
+    text: str,
+    start: str,
+    end: str,
+    label: str,
+) -> str:
+    start_count = text.count(start)
+    end_count = text.count(end)
+    if start_count != 1 or end_count != 1:
+        raise ManagedConflict(f"{label} markers are missing, duplicate, or unbalanced")
+    start_index = text.index(start) + len(start)
+    end_index = text.index(end)
+    if end_index < start_index:
+        raise ManagedConflict(f"{label} markers are out of order")
+    content = text[start_index:end_index]
+    if content.startswith("\r\n"):
+        content = content[2:]
+    elif content.startswith(("\r", "\n")):
+        content = content[1:]
+    return canonical_managed_body(content)
+
+
+def parse_managed_frontmatter(text: str) -> dict[str, object]:
+    raw_fields = extract_single_region(
+        text,
+        FRONTMATTER_START,
+        FRONTMATTER_END,
+        "frontmatter",
+    )
+    fields: dict[str, object] = {}
+    for line in raw_fields.split("\n"):
+        if not line:
+            continue
+        key, separator, raw_value = line.partition(":")
+        if not separator or not key.startswith("llm_wiki_") or key in fields:
+            raise ManagedConflict("managed frontmatter is invalid")
+        try:
+            fields[key] = json.loads(raw_value.strip())
+        except json.JSONDecodeError as error:
+            raise ManagedConflict("managed frontmatter is invalid") from error
+    return fields
+
+
+def inspect_managed_page(text: str) -> ManagedPageSnapshot:
+    frontmatter, body, _ = split_frontmatter(text)
+    fields = parse_managed_frontmatter(frontmatter)
+    managed_body = extract_single_region(
+        body,
+        MANAGED_START,
+        MANAGED_END,
+        "managed",
+    )
+    return ManagedPageSnapshot(
+        fields=fields,
+        managed_body=managed_body,
+        computed_checksum=managed_checksum(fields, managed_body),
+    )
+
+
+def inspect_projection_region(text: str) -> ProjectionSnapshot:
+    return ProjectionSnapshot(
+        managed_body=extract_single_region(
+            text,
+            PROJECTION_START,
+            PROJECTION_END,
+            "projection",
+        )
+    )
 
 
 def replace_region(

@@ -13,6 +13,8 @@ from .managed import (
     MANAGED_END,
     MANAGED_START,
     ManagedConflict,
+    canonical_managed_body,
+    inspect_managed_page,
     managed_checksum,
     replace_frontmatter_region,
     replace_managed_body,
@@ -128,10 +130,6 @@ class PagePlan:
         return payload
 
 
-def _canonical_body(body: str) -> str:
-    return body.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
-
-
 def _managed_fields(
     page_id: str,
     mutation: PageMutation,
@@ -160,31 +158,13 @@ def _new_page(fields: Mapping[str, object], body: str) -> str:
     )
 
 
-def _region(text: str, start: str, end: str, label: str) -> str:
-    if text.count(start) != 1 or text.count(end) != 1:
-        raise ManagedConflict(f"{label} markers are missing or duplicate")
-    start_index = text.index(start) + len(start)
-    end_index = text.index(end)
-    if end_index < start_index:
-        raise ManagedConflict(f"{label} markers are out of order")
-    return text[start_index:end_index].strip("\r\n")
-
-
 def _read_managed_state(text: str) -> tuple[dict[str, object], str, str]:
-    raw_fields = _region(text, FRONTMATTER_START, FRONTMATTER_END, "frontmatter")
-    fields: dict[str, object] = {}
-    for line in raw_fields.replace("\r\n", "\n").split("\n"):
-        if not line:
-            continue
-        key, separator, raw_value = line.partition(":")
-        if not separator or not key.startswith("llm_wiki_"):
-            raise ManagedConflict("managed frontmatter is invalid")
-        try:
-            fields[key] = json.loads(raw_value.strip())
-        except json.JSONDecodeError as error:
-            raise ManagedConflict("managed frontmatter is invalid") from error
-    body = _canonical_body(_region(text, MANAGED_START, MANAGED_END, "managed"))
-    return fields, body, managed_checksum(fields, body)
+    snapshot = inspect_managed_page(text)
+    return (
+        dict(snapshot.fields),
+        snapshot.managed_body,
+        snapshot.computed_checksum,
+    )
 
 
 def _record_for_path(
@@ -244,7 +224,7 @@ def plan_page_mutation(
         )
     )
     expected_file_checksum = file_text_checksum(target)
-    canonical_body = _canonical_body(mutation.managed_body)
+    canonical_body = canonical_managed_body(mutation.managed_body)
     base_fields = _managed_fields(page_id, mutation, source_ids)
     new_checksum = managed_checksum(base_fields, canonical_body)
     fields = _managed_fields(page_id, mutation, source_ids, new_checksum)

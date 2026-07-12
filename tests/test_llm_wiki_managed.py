@@ -10,6 +10,8 @@ from llm_wiki_core.managed import (
     ManagedConflict,
     PROJECTION_END,
     PROJECTION_START,
+    inspect_managed_page,
+    inspect_projection_region,
     managed_checksum,
     replace_frontmatter_region,
     replace_managed_body,
@@ -18,6 +20,62 @@ from llm_wiki_core.managed import (
 
 
 class ManagedRegionTests(unittest.TestCase):
+    def test_inspect_managed_page_returns_canonical_snapshot(self):
+        text = (
+            "---\r\n# llm-wiki:frontmatter:start\r\n"
+            'llm_wiki_page_id: "page-1"\r\n'
+            'llm_wiki_page_type: "topic"\r\n'
+            'llm_wiki_source_ids: ["source-1"]\r\n'
+            'llm_wiki_managed_checksum: "sha256:old"\r\n'
+            "# llm-wiki:frontmatter:end\r\n---\r\n"
+            "<!-- llm-wiki:managed:start -->\r\nBody\r\n\r\n"
+            "<!-- llm-wiki:managed:end -->\r\n"
+        )
+
+        snapshot = inspect_managed_page(text)
+
+        self.assertEqual(snapshot.fields["llm_wiki_page_id"], "page-1")
+        self.assertEqual(snapshot.fields["llm_wiki_source_ids"], ["source-1"])
+        self.assertEqual(snapshot.managed_body, "Body")
+        self.assertEqual(
+            snapshot.computed_checksum,
+            managed_checksum(snapshot.fields, "Body"),
+        )
+
+    def test_inspect_projection_region_normalizes_newlines_and_tail(self):
+        snapshot = inspect_projection_region(
+            "Before\r\n"
+            "<!-- llm-wiki:projection:start -->\r\nA\r\nB\r\n\r\n"
+            "<!-- llm-wiki:projection:end -->\r\nAfter\r\n"
+        )
+
+        self.assertEqual(snapshot.managed_body, "A\nB")
+
+    def test_inspect_managed_page_rejects_invalid_json_value(self):
+        text = (
+            "---\n# llm-wiki:frontmatter:start\n"
+            "llm_wiki_page_id: not-json\n"
+            "# llm-wiki:frontmatter:end\n---\n"
+            "<!-- llm-wiki:managed:start -->\nBody\n"
+            "<!-- llm-wiki:managed:end -->\n"
+        )
+
+        with self.assertRaisesRegex(ManagedConflict, "managed frontmatter is invalid"):
+            inspect_managed_page(text)
+
+    def test_inspect_managed_page_rejects_duplicate_managed_markers(self):
+        text = (
+            "---\n# llm-wiki:frontmatter:start\n"
+            'llm_wiki_page_id: "page-1"\n'
+            "# llm-wiki:frontmatter:end\n---\n"
+            "<!-- llm-wiki:managed:start -->\nA\n"
+            "<!-- llm-wiki:managed:start -->\nB\n"
+            "<!-- llm-wiki:managed:end -->\n"
+        )
+
+        with self.assertRaisesRegex(ManagedConflict, "managed markers"):
+            inspect_managed_page(text)
+
     def test_projection_replace_preserves_user_text(self):
         original = "Before\n<!-- llm-wiki:projection:start -->\nold\n<!-- llm-wiki:projection:end -->\nAfter\n"
         updated = replace_projection_region(original, "new\n")
