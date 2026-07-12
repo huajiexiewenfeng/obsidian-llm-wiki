@@ -29,6 +29,21 @@ Do not fall back to a repository-relative `scripts/llm_wiki.py` path.
 
 # Obsidian Wiki Doctor
 
+## Inventory Discovery
+
+Doctor calls the shared Inventory Core on every resolved Vault and remains
+strictly read-only. It compares supported document metadata with
+`.meta/inventory.json`, `.meta/sources.json`, and `.meta/pages.json`.
+
+- `missing-ingest-inventory`: show an initialize dry-run; never initialize automatically.
+- `uningested-source`: a supported document lacks complete processed registry evidence.
+- `stale-ingested-source`: processed source metadata changed after ingest.
+- Invalid baselines, collisions, or incomplete scans block completeness claims.
+- Sensitive scopes expose alias/count summaries only.
+
+Use `inventory inspect --format json` for the complete non-sensitive candidate
+list. Text output groups large sets and shows at most 20 examples per directory.
+
 Diagnose an Obsidian LLM Wiki with the deterministic doctor engine.
 
 ## Boundary

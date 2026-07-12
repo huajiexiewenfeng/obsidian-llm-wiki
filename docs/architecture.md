@@ -169,3 +169,13 @@ runtime together with the five workflow skills.
 
 Future versions may split inventory, rules, and organize into separate skills if
 they become large enough, but diagnosis and repair should remain separate.
+
+## Inventory Core
+
+`llm_wiki_core/inventory.py` is the authority for Vault scope, metadata scans,
+baseline validation, registry comparison, and confirmed Inventory mutations.
+Doctor and `inventory inspect` share its read-only comparator. Maintain-facing
+mutations reuse v0.2 locks, operations, plan checksums, atomic replacement, and
+change-log evidence. Inventory persists only `discovered` and `ignored`;
+processed/stale are derived from source/page/proxy evidence. Control-center
+`.meta/`, `ingest/`, `wiki/`, and `raw/` are never ordinary candidates.

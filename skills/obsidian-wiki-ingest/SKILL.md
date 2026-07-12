@@ -31,6 +31,11 @@ Do not fall back to a repository-relative `scripts/llm_wiki.py` path.
 
 Ingest existing vault content or external files and folders into the LLM Wiki. `raw/` is a managed archive destination, not a candidate inbox.
 
+When Doctor reports `uningested-source`, treat the Vault-relative path as a
+candidate. Preview the normal `ingest apply` payload; only successful confirmed
+apply may create processed source/page evidence. Never mark processed by editing
+Inventory JSON or Markdown projections. Rerun Doctor after apply.
+
 ## When To Use
 
 Use this skill when the user wants to:

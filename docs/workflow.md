@@ -167,3 +167,17 @@ Query is for using the knowledge base. It can suggest new pages but should not s
 5. Run doctor and review the report.
 6. Apply one approved maintain repair if the report identifies a narrow fix.
 7. Ask a query that requires reading topic, source, and SOP pages.
+
+## Inventory Discovery
+
+```text
+Doctor / inventory inspect
+-> initialize baseline dry-run and confirmation when missing
+-> uningested-source -> ingest apply dry-run and confirmation
+-> sources/pages registry evidence -> Doctor derives processed or stale
+```
+
+Scope and ignore decisions use `inventory configure`, `ignore`, or `unignore`.
+They are dry-run by default and require the returned plan checksum to write.
+Doctor never changes the baseline. Sensitive scopes remain aggregate-only, and
+`raw/` is permanently excluded from ordinary candidate discovery.

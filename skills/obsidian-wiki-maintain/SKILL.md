@@ -29,6 +29,15 @@ Do not fall back to a repository-relative `scripts/llm_wiki.py` path.
 
 # Obsidian Wiki Maintain
 
+## Inventory Maintenance
+
+`inventory initialize`, `configure`, `ignore`, and `unignore` are Maintain
+actions. Run them without `--confirm`, show candidate/affected counts and
+sensitive summaries, then proceed only after approval with
+`--confirm --plan-checksum <sha256>`. Never overwrite an invalid baseline,
+target the control center with ignore/unignore, or include `raw/` as a normal
+candidate scope.
+
 Repair confirmed Obsidian LLM Wiki structure, consistency, and safety issues.
 Detection belongs to `obsidian-wiki-doctor`; maintain applies approved fixes.
 

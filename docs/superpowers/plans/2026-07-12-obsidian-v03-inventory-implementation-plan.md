@@ -266,19 +266,19 @@
 - Preserves: 根目录 shim 只转发 installable runtime，不复制 Inventory 实现。
 - Documents: Doctor 发现、Ingest 处理、Maintain 初始化/配置/忽略的职责边界。
 
-- [ ] **Step 1: 写 packaging 失败测试**
+- [x] **Step 1: 写 packaging 失败测试**
 
   断言安装包包含 `llm_wiki_core/inventory.py`，根 shim 的 `inventory inspect` 可用，已安装 Doctor 与权威 runtime 使用同一 Inventory Core。
 
-- [ ] **Step 2: 更新三项技能说明**
+- [x] **Step 2: 更新三项技能说明**
 
   Doctor 明确“扫描并报告但不写”；Ingest 明确 processed 只能由成功 apply 产生；Maintain 明确 initialize/configure/ignore/unignore 必须先展示计划再确认。
 
-- [ ] **Step 3: 更新架构和工作流**
+- [x] **Step 3: 更新架构和工作流**
 
   记录完整链路：Doctor/inspect 发现 → 用户选择 → Ingest apply → Doctor 复查；说明 `raw/` 不属于普通候选，真实 Vault 首次初始化需要用户确认。
 
-- [ ] **Step 4: 运行 packaging 回归并提交**
+- [x] **Step 4: 运行 packaging 回归并提交**
 
   Run: `python -m pytest tests/test_skill_runtime_packaging.py tests/test_skills_cli_install.py tests/test_llm_wiki_cli.py -q`
 
