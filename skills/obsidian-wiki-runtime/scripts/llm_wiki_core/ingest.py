@@ -10,8 +10,14 @@ from typing import Mapping, TextIO
 from .archive import (
     ArchiveError,
     ArchiveTargetEvidence,
+    PreparedArchive,
+    archive_relative_path as build_archive_relative_path,
     archive_source_id,
+    cleanup_prepared_archive,
     inspect_archive_target,
+    prepare_archive,
+    publish_archive_noreplace,
+    validate_prepared_archive,
 )
 from .state import (
     PAGE_TYPES,
@@ -166,6 +172,7 @@ class IngestResult:
     source_id: str
     record_ids: tuple[str, ...]
     idempotent: bool = False
+    archive_relative_path: str | None = None
 
 
 def _object(value: object, field: str) -> Mapping[str, object]:
@@ -605,6 +612,7 @@ def _planned_source_record(
     *,
     status: str = "pending",
     verified_at: str | None = None,
+    archive_relative_path: str | None = None,
 ) -> SourceRecord:
     return SourceRecord(
         source_id=source.source_id,
@@ -622,6 +630,7 @@ def _planned_source_record(
             or (previous.last_verified_at if previous else "pending-confirmation")
         ),
         revision=source.revision,
+        archive_relative_path=archive_relative_path,
     )
 
 
@@ -653,9 +662,6 @@ def _planned_page_records(
 
 
 def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
-    from .page import plan_page_mutation
-    from .projection import plan_projections, read_change_events
-
     control_center = control_center.resolve()
     actual_fingerprint = file_fingerprint(payload.source.path)
     if actual_fingerprint != dict(payload.source.fingerprint):
@@ -668,6 +674,31 @@ def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
             "source checksum changed after payload creation",
             check="source-checksum-conflict",
         )
+    return _plan_ingest_from_current_state(control_center, payload)
+
+
+def _plan_ingest_with_archive_evidence(
+    control_center: Path,
+    payload: IngestPayload,
+    evidence: PreparedArchive,
+) -> IngestPlan:
+    validate_prepared_archive(evidence)
+    return _plan_ingest_from_current_state(
+        control_center.resolve(),
+        payload,
+        archive_evidence=evidence.to_target_evidence(),
+    )
+
+
+def _plan_ingest_from_current_state(
+    control_center: Path,
+    payload: IngestPayload,
+    *,
+    archive_evidence: ArchiveTargetEvidence | None = None,
+) -> IngestPlan:
+    from .page import plan_page_mutation
+    from .projection import plan_projections, read_change_events
+
     meta = control_center / ".meta"
     sources_path = meta / "sources.json"
     pages_path = meta / "pages.json"
@@ -690,16 +721,31 @@ def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
         payload.source.mode == "archive-import"
         and source_plan.action not in source_conflict_actions
     ):
-        try:
-            archive = inspect_archive_target(
-                control_center,
-                source_plan.source_id,
-                payload.source.path.name,
-                payload.source.checksum,
-                payload.source.fingerprint["size"],
-            )
-        except ArchiveError as error:
-            raise IngestPlanConflict(str(error), check=error.check) from error
+        expected_target = build_archive_relative_path(
+            source_plan.source_id,
+            payload.source.path.name,
+        )
+        if archive_evidence is not None:
+            if (
+                archive_evidence.relative_path != expected_target
+                or archive_evidence.checksum != payload.source.checksum
+            ):
+                raise IngestPlanConflict(
+                    "prepared archive no longer matches the current source plan",
+                    check="archive-target-changed",
+                )
+            archive = archive_evidence
+        else:
+            try:
+                archive = inspect_archive_target(
+                    control_center,
+                    source_plan.source_id,
+                    payload.source.path.name,
+                    payload.source.checksum,
+                    payload.source.fingerprint["size"],
+                )
+            except ArchiveError as error:
+                raise IngestPlanConflict(str(error), check=error.check) from error
     if source_plan.action in source_conflict_actions:
         page_plans: tuple["PagePlan", ...] = ()
         projection_plans: tuple["ProjectionPlan", ...] = ()
@@ -731,6 +777,9 @@ def plan_ingest(control_center: Path, payload: IngestPayload) -> IngestPlan:
             previous_source,
             proxy_page_id,
             status="processed",
+            archive_relative_path=(
+                archive.relative_path if archive is not None else None
+            ),
         )
         next_sequence = max(
             (
@@ -834,12 +883,119 @@ def _completed_event(
     return None
 
 
+def _completed_ingest_result(
+    control_center: Path,
+    operations_path: Path,
+    plan: IngestPlan,
+    completed: Mapping[str, object],
+) -> IngestResult:
+    operation_id = str(completed.get("operation_id", ""))
+    try:
+        update_operation(
+            operations_path,
+            operation_id,
+            allowed_root=control_center,
+            status="completed",
+            current_step="complete",
+        )
+    except (KeyError, OSError, ValueError):
+        pass
+    record_ids = tuple(
+        item for item in completed.get("record_ids", []) if isinstance(item, str)
+    )
+    summary = completed.get("summary")
+    archive_target = summary.get("archive_target") if isinstance(summary, dict) else None
+    return IngestResult(
+        status="completed",
+        operation_id=operation_id,
+        idempotency_key=plan.idempotency_key,
+        source_id=plan.source.source_id,
+        record_ids=record_ids,
+        idempotent=True,
+        archive_relative_path=archive_target if isinstance(archive_target, str) else None,
+    )
+
+
 def apply_ingest(
     control_center: Path,
     payload: IngestPayload,
     confirmed_plan_checksum: str,
     *,
     fail_after_step: str | None = None,
+) -> IngestResult:
+    from .projection import read_change_events
+
+    control_center = control_center.resolve()
+    if payload.source.mode != "archive-import":
+        return _apply_ingest_transaction(
+            control_center,
+            payload,
+            confirmed_plan_checksum,
+            fail_after_step=fail_after_step,
+        )
+
+    outside_plan = plan_ingest(control_center, payload)
+    events = read_change_events(control_center / ".meta/change-log.jsonl")
+    completed = _completed_event(events, outside_plan.idempotency_key)
+    prepared: PreparedArchive | None = None
+    if completed is None:
+        if outside_plan.plan_checksum != confirmed_plan_checksum:
+            raise IngestPlanConflict(
+                "confirmed plan checksum no longer matches current state",
+                check="plan-conflict",
+            )
+        if not outside_plan.confirmable:
+            check = (
+                outside_plan.source.conflict.get("check")
+                if outside_plan.source.conflict
+                else None
+            )
+            if check is None and outside_plan.archive is not None:
+                check = (
+                    outside_plan.archive.conflict.get("check")
+                    if outside_plan.archive.conflict
+                    else None
+                )
+            raise IngestPlanConflict(
+                "ingest plan contains unresolved conflicts",
+                check=str(check or "plan-not-confirmable"),
+            )
+        if outside_plan.archive is None:
+            raise IngestPlanConflict(
+                "archive plan is missing target evidence",
+                check="invalid-state",
+            )
+        prepared = prepare_archive(
+            payload.source.path,
+            control_center,
+            outside_plan.archive,
+            payload.source.fingerprint,
+        )
+    try:
+        result = _apply_ingest_transaction(
+            control_center,
+            payload,
+            confirmed_plan_checksum,
+            fail_after_step=fail_after_step,
+            prepared_archive=prepared,
+            outside_plan=outside_plan,
+        )
+        if result.idempotent:
+            cleanup_prepared_archive(prepared)
+        return result
+    except BaseException:
+        cleanup_prepared_archive(prepared)
+        raise
+
+
+def _apply_ingest_transaction(
+    control_center: Path,
+    payload: IngestPayload,
+    confirmed_plan_checksum: str,
+    *,
+    fail_after_step: str | None = None,
+    prepared_archive: PreparedArchive | None = None,
+    outside_plan: IngestPlan | None = None,
 ) -> IngestResult:
     from .projection import plan_projections, read_change_events
 
@@ -853,33 +1009,35 @@ def apply_ingest(
         target=control_center,
     )
     with lock:
-        refreshed = plan_ingest(control_center, payload)
         events = read_change_events(meta / "change-log.jsonl")
+        if outside_plan is None:
+            refreshed = plan_ingest(control_center, payload)
+        else:
+            completed = _completed_event(events, outside_plan.idempotency_key)
+            if completed is not None:
+                return _completed_ingest_result(
+                    control_center,
+                    operations_path,
+                    outside_plan,
+                    completed,
+                )
+            if prepared_archive is None:
+                raise IngestPlanConflict(
+                    "archive preparation is missing",
+                    check="archive-target-changed",
+                )
+            refreshed = _plan_ingest_with_archive_evidence(
+                control_center,
+                payload,
+                prepared_archive,
+            )
         completed = _completed_event(events, refreshed.idempotency_key)
         if completed is not None:
-            operation_id = str(completed.get("operation_id", ""))
-            try:
-                update_operation(
-                    operations_path,
-                    operation_id,
-                    allowed_root=control_center,
-                    status="completed",
-                    current_step="complete",
-                )
-            except (KeyError, OSError, ValueError):
-                pass
-            record_ids = tuple(
-                item
-                for item in completed.get("record_ids", [])
-                if isinstance(item, str)
-            )
-            return IngestResult(
-                status="completed",
-                operation_id=operation_id,
-                idempotency_key=refreshed.idempotency_key,
-                source_id=refreshed.source.source_id,
-                record_ids=record_ids,
-                idempotent=True,
+            return _completed_ingest_result(
+                control_center,
+                operations_path,
+                refreshed,
+                completed,
             )
         if refreshed.plan_checksum != confirmed_plan_checksum:
             raise IngestPlanConflict(
@@ -911,6 +1069,9 @@ def apply_ingest(
             page.page_id for page in refreshed.pages if page.relative_path == proxy_path
         )
         verified_at = utc_now()
+        archive_relative_path = (
+            refreshed.archive.relative_path if refreshed.archive is not None else None
+        )
         pending_source = _planned_source_record(
             payload,
             source_plan,
@@ -918,6 +1079,7 @@ def apply_ingest(
             proxy_page_id,
             status="pending",
             verified_at=verified_at,
+            archive_relative_path=archive_relative_path,
         )
         processed_source = _planned_source_record(
             payload,
@@ -926,6 +1088,7 @@ def apply_ingest(
             proxy_page_id,
             status="processed",
             verified_at=verified_at,
+            archive_relative_path=archive_relative_path,
         )
         pending_sources = dict(sources)
         pending_sources[source_plan.source_id] = pending_source
@@ -970,6 +1133,17 @@ def apply_ingest(
             )
             completed_targets.append(".meta/sources.json")
             inject()
+
+            if refreshed.archive is not None:
+                if prepared_archive is None:
+                    raise IngestPlanConflict(
+                        "archive preparation is missing",
+                        check="archive-target-changed",
+                    )
+                enter("publish-archive")
+                publish_archive_noreplace(prepared_archive)
+                completed_targets.append(refreshed.archive.relative_path)
+                inject()
 
             enter("write-pages")
             for page in refreshed.pages:
@@ -1058,7 +1232,18 @@ def apply_ingest(
                 },
                 result="completed",
                 idempotency_key=refreshed.idempotency_key,
-                summary={"source_action": source_plan.action},
+                summary={
+                    "source_action": source_plan.action,
+                    **(
+                        {}
+                        if refreshed.archive is None
+                        else {
+                            "archive_action": refreshed.archive.action,
+                            "archive_target": refreshed.archive.relative_path,
+                            "archive_checksum": payload.source.checksum,
+                        }
+                    ),
+                },
             )
             completed_targets.append(".meta/change-log.jsonl")
             inject()
@@ -1078,6 +1263,7 @@ def apply_ingest(
                 idempotency_key=refreshed.idempotency_key,
                 source_id=source_plan.source_id,
                 record_ids=record_ids,
+                archive_relative_path=archive_relative_path,
             )
         except BaseException as error:
             try:
@@ -1091,7 +1277,7 @@ def apply_ingest(
                 )
             except BaseException:
                 pass
-            if isinstance(error, IngestPlanConflict):
+            if isinstance(error, (IngestPlanConflict, ArchiveError)):
                 raise
             raise IngestWriteError(
                 str(error),

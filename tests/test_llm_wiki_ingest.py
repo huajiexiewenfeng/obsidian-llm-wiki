@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_SCRIPTS = REPO_ROOT / "skills" / "obsidian-wiki-runtime" / "scripts"
@@ -531,7 +532,177 @@ def transaction_fixture(base: Path) -> tuple[Path, dict[str, object]]:
     return control, raw
 
 
+def archive_transaction_fixture(base: Path) -> tuple[Path, Path, dict[str, object]]:
+    control, source, raw = archive_planner_fixture(base)
+    write_registry(control / ".meta/operations.json", {})
+    return control, source, raw
+
+
 class IngestTransactionTests(unittest.TestCase):
+    def test_archive_wrong_confirmation_creates_no_raw_or_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, _, raw = archive_transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+
+            with self.assertRaises(IngestPlanConflict) as raised:
+                apply_ingest(control, payload, "sha256:" + "0" * 64)
+
+            self.assertEqual(raised.exception.check, "plan-conflict")
+            self.assertFalse((control / "raw").exists())
+
+    def test_archive_create_is_complete_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, source, raw = archive_transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            plan = plan_ingest(control, payload)
+
+            result = apply_ingest(control, payload, plan.plan_checksum)
+            sources = decode_source_registry(
+                json.loads((control / ".meta/sources.json").read_text(encoding="utf-8"))
+            )
+            record = sources[result.source_id]
+            target = control / Path(*record.archive_relative_path.split("/"))
+            events = read_change_events(control / ".meta/change-log.jsonl")
+            operation = load_operations(control / ".meta/operations.json")[result.operation_id]
+            repeated = apply_ingest(control, payload, plan.plan_checksum)
+            repeated_events = read_change_events(control / ".meta/change-log.jsonl")
+            target_bytes = target.read_bytes()
+            source_bytes = source.read_bytes()
+            temp_files = list((control / "raw").rglob("*.tmp"))
+
+        self.assertEqual(target_bytes, source_bytes)
+        self.assertEqual(record.status, "processed")
+        self.assertEqual(result.archive_relative_path, record.archive_relative_path)
+        self.assertEqual(events[0]["summary"]["archive_target"], record.archive_relative_path)
+        self.assertEqual(operation.status, "completed")
+        self.assertTrue(repeated.idempotent)
+        self.assertEqual(repeated.operation_id, result.operation_id)
+        self.assertEqual(repeated.archive_relative_path, record.archive_relative_path)
+        self.assertEqual(len(repeated_events), 1)
+        self.assertEqual(temp_files, [])
+
+    def test_archive_reuse_does_not_publish_a_new_link(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, source, raw = archive_transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            initial = plan_ingest(control, payload)
+            target = control / Path(*initial.archive.relative_path.split("/"))
+            target.parent.mkdir(parents=True)
+            target.write_bytes(source.read_bytes())
+            reuse = plan_ingest(control, payload)
+
+            with patch(
+                "llm_wiki_core.archive.os.link",
+                side_effect=AssertionError("reuse attempted publication"),
+            ):
+                result = apply_ingest(control, payload, reuse.plan_checksum)
+            target_bytes = target.read_bytes()
+            source_bytes = source.read_bytes()
+
+        self.assertEqual(result.archive_relative_path, reuse.archive.relative_path)
+        self.assertEqual(target_bytes, source_bytes)
+
+    def test_archive_full_checksum_reads_stay_outside_vault_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, _, raw = archive_transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            plan = plan_ingest(control, payload)
+            real_checksum = file_checksum
+            calls: list[Path] = []
+
+            def guarded_checksum(path: Path, *args, **kwargs):
+                if (control / ".meta/lock.json").exists():
+                    raise AssertionError("full checksum read occurred under Vault lock")
+                calls.append(Path(path))
+                return real_checksum(Path(path), *args, **kwargs)
+
+            with patch("llm_wiki_core.ingest.file_checksum", side_effect=guarded_checksum), patch(
+                "llm_wiki_core.archive.file_checksum", side_effect=guarded_checksum
+            ):
+                result = apply_ingest(control, payload, plan.plan_checksum)
+
+        self.assertEqual(result.status, "completed")
+        self.assertGreaterEqual(len(calls), 1)
+
+    def test_archive_failure_before_publish_cleans_temp_and_fresh_plan_recovers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, _, raw = archive_transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            plan = plan_ingest(control, payload)
+
+            with self.assertRaises(IngestWriteError) as raised:
+                apply_ingest(
+                    control,
+                    payload,
+                    plan.plan_checksum,
+                    fail_after_step="write-source-pending",
+                )
+
+            target = control / Path(*plan.archive.relative_path.split("/"))
+            self.assertFalse(target.exists())
+            self.assertEqual(list((control / "raw").rglob("*.tmp")), [])
+            retry_plan = plan_ingest(control, payload)
+            recovered = apply_ingest(control, payload, retry_plan.plan_checksum)
+            recovered_target_exists = target.is_file()
+
+        self.assertEqual(raised.exception.current_step, "write-source-pending")
+        self.assertEqual(recovered.status, "completed")
+        self.assertTrue(recovered_target_exists)
+
+    def test_archive_failure_after_publish_keeps_target_and_retry_reuses_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control, source, raw = archive_transaction_fixture(Path(tmp))
+            payload = load_payload_text(json.dumps(raw))
+            plan = plan_ingest(control, payload)
+
+            with self.assertRaises(IngestWriteError) as raised:
+                apply_ingest(
+                    control,
+                    payload,
+                    plan.plan_checksum,
+                    fail_after_step="publish-archive",
+                )
+
+            target = control / Path(*plan.archive.relative_path.split("/"))
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            retry_plan = plan_ingest(control, payload)
+            self.assertEqual(retry_plan.archive.action, "archive-reuse")
+            recovered = apply_ingest(control, payload, retry_plan.plan_checksum)
+            events = read_change_events(control / ".meta/change-log.jsonl")
+
+        self.assertEqual(raised.exception.current_step, "publish-archive")
+        self.assertEqual(recovered.status, "completed")
+        self.assertEqual(len(events), 1)
+
+    def test_archive_transaction_steps_record_precise_failure_position(self):
+        steps = (
+            "write-source-pending",
+            "publish-archive",
+            "write-pages",
+            "write-page-registry",
+            "write-projections",
+            "write-source-processed",
+            "append-change-log",
+        )
+        for step in steps:
+            with self.subTest(step=step), tempfile.TemporaryDirectory() as tmp:
+                control, _, raw = archive_transaction_fixture(Path(tmp))
+                payload = load_payload_text(json.dumps(raw))
+                plan = plan_ingest(control, payload)
+
+                with self.assertRaises(IngestWriteError):
+                    apply_ingest(
+                        control,
+                        payload,
+                        plan.plan_checksum,
+                        fail_after_step=step,
+                    )
+
+                operations = load_operations(control / ".meta/operations.json")
+                failed = next(iter(operations.values()))
+                self.assertEqual(failed.status, "failed")
+                self.assertEqual(failed.current_step, step)
+
     def test_confirmed_transaction_writes_processed_state_pages_projections_and_event(self):
         with tempfile.TemporaryDirectory() as tmp:
             control, raw = transaction_fixture(Path(tmp))
