@@ -236,6 +236,7 @@ dry-run 只返回确定性 `plan_checksum`，不分配真实 `operation_id`。�
 - 只替换 `llm-wiki:projection` 托管区，marker 外字节保持不变。
 - 缺少 marker 时必须逐路径 takeover；重复、嵌套、越界或顺序错误均返回 conflict。
 - `projection rebuild` 由权威状态重新生成相同托管区，重复执行结果不变。
+- `projection rebuild` 从权威状态重放，不追加 change event，也不属于要求 completion event 审计的 operation kind。
 
 ## CLI 与退出码
 

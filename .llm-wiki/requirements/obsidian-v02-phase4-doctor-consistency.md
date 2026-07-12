@@ -29,7 +29,9 @@ Phase 3 已能生成 registry、托管页面、确定性投影和可诊断 opera
 
 - 健康 Phase 3 Vault 无新 ERROR/WARN。
 - `.meta` absent 兼容，partial/invalid 独立诊断。
+- change-log 中间损坏为 ERROR；仅尾行撕裂为 WARN，并继续使用合法事件前缀检查。
 - page/frontmatter/checksum、三个投影、operation/event/lock/temp 均有确定性检查。
+- INFO finding 正常渲染且不影响 `--fail-on error`；同一 failed ingest 根因不重复产生 pending source 告警。
 - 扫描不离开 control center，Doctor 严格零写入。
 - Finding 六字段、score version 1、五维权重和现有 CLI/退出码不变。
 - 完整 unittest、只读快照、redaction 和 runtime packaging 回归通过。
@@ -42,6 +44,8 @@ Phase 3 已能生成 registry、托管页面、确定性投影和可诊断 opera
 - Finding JSON 不扩字段，恢复建议写入 `hint`。
 - 使用独立只读 `llm_wiki_core/doctor_state.py`。
 - 托管页/投影 inspector 由 Page planner 与 Doctor 共用。
+- `projection-rebuild` 按 Phase 3 明文契约不追加 change event，也不要求 completion event 审计。
+- Doctor 对 torn change-log tail 使用合法前缀继续检查，修复仍交给 Maintain 并要求用户确认。
 
 ## 验证计划
 
@@ -63,7 +67,7 @@ Phase 3 已能生成 registry、托管页面、确定性投影和可诊断 opera
 | Step | Status | Evidence | Updated |
 |---|---|---|---|
 | source | done | v0.2 总体设计、Phase 3 设计与 handoff | 2026-07-12 |
-| design | done | 对话四部分设计确认；书面设计已生成 | 2026-07-12 |
+| design | done | 对话四部分设计确认；书面设计已生成并按外部评审的四项问题修订 | 2026-07-12 |
 | plan | pending |  |  |
 | development | pending |  |  |
 | testing | pending |  |  |
@@ -71,4 +75,4 @@ Phase 3 已能生成 registry、托管页面、确定性投影和可诊断 opera
 
 ## 待确认问题
 
-- 用户复审书面设计后进入实施计划。
+- 用户复审修订后的书面设计后进入实施计划。

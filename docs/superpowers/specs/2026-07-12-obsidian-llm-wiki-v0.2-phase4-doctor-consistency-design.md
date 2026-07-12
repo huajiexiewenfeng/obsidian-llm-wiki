@@ -4,7 +4,7 @@
 
 - 日期：2026-07-12
 - flow_id：`obsidian-v02-phase4-doctor-consistency`
-- 状态：对话设计已确认，书面规格待用户复审
+- 状态：对话设计已确认，书面规格已按评审修订，待用户复审
 - 实施基线：本地 `main@e1f270d`，包含 Phase 3 transactional ingest/projection
 - 前置 Flow：`obsidian-v02-phase3-ingest-projection`
 
@@ -93,7 +93,8 @@ ProjectionSnapshot
 ### 状态文件
 
 - `missing-state-file`，ERROR：`.meta` 已启用但必要文件缺失。
-- `invalid-state-file`，ERROR：JSON、schema、registry record 或 change-log 行损坏。
+- `invalid-state-file`，ERROR：JSON、schema、registry record 或 change-log 中间行损坏。
+- `torn-change-log-tail`，WARN：change log 的合法事件前缀之后仅有一个未完成尾行。判定条件为最后一个非空片段无法解析且文件末尾没有换行；合法前缀继续参与 log projection 与 completion event 检查。
 
 每个状态文件独立加载。单文件损坏只阻断依赖它的检查：
 
@@ -101,13 +102,14 @@ ProjectionSnapshot
 - `sources.json` 损坏：跳过 source/proxy 与 ingest projection。
 - `pages.json` 损坏：跳过 page/frontmatter、orphan 与 wiki index projection。
 - `operations.json` 损坏：跳过 operation/event 关联。
-- `change-log.jsonl` 损坏：跳过 log projection 与 completion event 关联。
+- `change-log.jsonl` 中间行损坏：跳过 log projection 与 completion event 关联。
+- `change-log.jsonl` 仅尾行撕裂：报告 `torn-change-log-tail`，忽略未完成尾行并用合法前缀继续检查；恢复 hint 要求 Maintain 先核对关联 operation，再经用户确认截断尾行。Doctor 本身不截断。
 
 ### Source registry
 
 - `processed-source-missing-proxy`，ERROR：processed source 没有 proxy page ID，或 ID 不在 page registry。
 - `source-proxy-file-missing`，ERROR：proxy page record 存在但目标 Markdown 缺失。
-- `pending-source-without-active-operation`，WARN：pending source 没有可解释它的有效 running ingest operation。
+- `pending-source-without-active-operation`，WARN：pending source 没有能解释当前状态的 active ingest operation。相关性以 `ingest-apply` operation 的 `record_ids` 包含 source ID 判断：没有相关 operation，或最新相关 operation 已 completed 但 source 仍为 pending 时，报告本 finding；最新相关 operation 为 running 时交给 lock 联合检查；最新相关 operation 为 failed 时由 `failed-operation` 单独报告并在 hint 中指出 source，不重复生成本 finding。
 - `failed-source`，WARN：source 状态为 failed。
 
 ### Page registry 与托管页面
@@ -148,6 +150,8 @@ Doctor 使用：
 
 要求 completion event 的 operation kind 为 `state-init`、`ingest-apply`、`page-apply`；`projection-rebuild` 在 Phase 3 契约中不追加 change event，因此不适用该检查。
 
+`INFO` 是 Phase 4 新增的 Finding severity 约定值，但不改变 Finding 字段集合。现有 `Finding.severity` 为字符串，`safe_finding()`、JSON/text renderer 均透传该值，`--fail-on error` 只检查 `ERROR`；因此 `active-operation` 不影响退出码或评分。实现测试必须固定 INFO 的 JSON/text 渲染以及 `--fail-on error` 返回 0。
+
 有效锁与 operation 的匹配使用规范化 command/kind、目标 control center 和时间关系。若多个 running operation 同时匹配一把锁，只把最新 `updated_at` 的一个视为 active，其余报告 `orphan-running-operation`。
 
 cross-host lock 不计为已确认 active，但其存在会抑制 `orphan-running-operation`，因为本机无法证明远端 writer 已退出；此时只报告 `cross-host-lock` WARN。invalid lock 不提供这种保护：同时报告 `invalid-lock`，相关 running operation 仍按 orphan 处理。
@@ -157,6 +161,7 @@ cross-host lock 不计为已确认 active，但其存在会抑制 `orphan-runnin
 - `orphan-temp-file`，WARN：在允许扫描的三个目录中发现 writer 风格 `.<target>.<random>.tmp` 文件。
 
 Doctor 只报告 control-center-relative path，不读取内容，也不根据年龄自动删除或降级。
+临时文件命名的前缀、后缀或匹配 predicate 必须与 writer 实现同源，Doctor 不维护一份独立正则。
 
 ## Finding 兼容与排序
 
@@ -201,14 +206,14 @@ Doctor 不生成可自动执行 payload，不调用 Maintain，不在 hint 中�
 
 新增 `tests/test_llm_wiki_doctor_state.py`：
 
-- `.meta` absent/partial/invalid 的 gating 与错误隔离。
-- source proxy、pending/failed source。
+- `.meta` absent/partial/invalid 的 gating、change-log 中间损坏与 torn tail 合法前缀恢复。
+- source proxy、pending/failed source，以及最新 failed ingest operation 对 pending 重复告警的抑制。
 - registered/orphan page、frontmatter/checksum/marker drift。
 - symlink/junction 越界（平台不允许时按既有理由 skip）。
 - 三投影 healthy/drift/marker conflict 与 CRLF 等价。
-- active/orphan/failed operation、event status、missing event。
+- active/orphan/failed operation、event status、missing event，以及 INFO 渲染和退出码兼容。
 - live/stale/cross-host/invalid lock。
-- writer temp pattern与窄扫描边界。
+- writer 同源 temp pattern 与窄扫描边界。
 - issues 稳定排序。
 
 ### Doctor 集成测试
@@ -218,7 +223,7 @@ Doctor 不生成可自动执行 payload，不调用 Maintain，不在 hint 中�
 - validate/report JSON 包含 Phase 4 findings。
 - Finding 字段集合保持不变。
 - score version、维度和权重保持不变。
-- 运行前后 control center 文件集合、size、mtime_ns 与 checksum 快照完全相同。
+- 运行前后 control center 文件集合、size、mtime_ns 与 checksum 快照完全相同；快照明确包含 `.meta/lock.json`，证明 Doctor 连锁文件也未触碰。
 - 根 launcher 与 canonical runtime 等价。
 
 ### 全量回归
@@ -232,14 +237,14 @@ Doctor 不生成可自动执行 payload，不调用 Maintain，不在 hint 中�
 
 1. 健康的 Phase 3 Vault 不产生新的 ERROR/WARN。
 2. `.meta` 完全不存在时保持旧 Wiki 兼容。
-3. 单状态文件损坏不会阻断其他安全检查。
+3. 单状态文件损坏不会阻断其他安全检查；change-log 仅尾行撕裂时保留合法前缀检查能力。
 4. registry/page/frontmatter/checksum drift 可以区分。
 5. 三个投影可分别识别 marker conflict 与内容 drift。
 6. running operation 与 lock 联合判断，不把正常 writer 误报为 orphan。
-7. completed event、operation 状态和审计缺口可检查。
+7. completed event、operation 状态和审计缺口可检查；projection-rebuild 按 Phase 3 契约免除 completion event 审计。
 8. orphan managed page、stale lock和 writer temp 可发现。
 9. 扫描和路径解析不离开 control center。
-10. Doctor 运行前后文件快照完全一致。
+10. Doctor 运行前后文件快照完全一致，包括 `.meta/lock.json`。
 11. Finding JSON、五维评分和三条 CLI 保持兼容。
 12. 敏感路径和错误文本继续经过现有 redaction。
 
