@@ -276,6 +276,20 @@ class ValidationCheckTests(unittest.TestCase):
             findings = json.loads(result.stdout)
             self.assertNotIn("broken-index-link", {item["check"] for item in findings})
 
+    def test_control_center_relative_wikilink_is_not_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_control_center(Path(tmp))
+            write(control / "wiki" / "sources" / "source.md", "# Source\n")
+            write(
+                control / "wiki" / "index.md",
+                "# Index\n\n- [[wiki/sources/source|Source]]\n",
+            )
+
+            result = run_doctor("validate", "--root", str(control), "--format", "json")
+            findings = json.loads(result.stdout)
+
+        self.assertNotIn("broken-index-link", {item["check"] for item in findings})
+
     def test_vault_root_wikilink_is_not_broken(self):
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)

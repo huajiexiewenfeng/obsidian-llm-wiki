@@ -231,6 +231,7 @@ def resolve_wikilink(
     target: str,
     vault_root: Path | None = None,
     wiki_root: Path | None = None,
+    control_center: Path | None = None,
     basename_index: dict[str, tuple[Path, ...]] | None = None,
 ) -> Path | None:
     link_target = obsidian_link_target(target)
@@ -249,7 +250,7 @@ def resolve_wikilink(
 
     if has_directory:
         roots: list[Path] = []
-        for root in (vault_root, wiki_root):
+        for root in (control_center, vault_root, wiki_root):
             if root is not None and root not in roots:
                 roots.append(root)
         unresolved: Path | None = None
@@ -345,6 +346,7 @@ def check_links(root: ResolvedRoot) -> list[Finding]:
                     match.group(1),
                     vault_root=root.vault_root,
                     wiki_root=root.wiki_root,
+                    control_center=root.control_center,
                     basename_index=basename_index,
                 ),
             )
