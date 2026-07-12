@@ -12,3 +12,4 @@
 - Confirmed and recorded the Phase 4 Doctor state-consistency design; implementation remains gated on written-spec review.
 - Revised the Phase 4 Doctor design from external review, confirmed the written specification, and produced a six-task TDD implementation plan; production implementation has not started.
 - Implemented Phase 4 Doctor state consistency on `codex/v02-phase4-doctor-consistency`; agent-local verification passed 187 tests with 2 existing platform/opt-in skips, and CI/reviewer verification remains pending.
+- Fast-forwarded Phase 4 into `main@117b28c` and pushed it to `origin/main`; retained `passed-agent-local` verification authority and routed the next design flow to Phase 3.1 archive import.

@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: Obsidian LLM Wiki v0.2 Phase 4 Doctor 状态一致性
-- status: implemented-agent-local
+- status: merged-and-pushed-agent-local
 - flow_id: obsidian-v02-phase4-doctor-consistency
 
 ## 来源
@@ -73,6 +73,8 @@ Phase 3 已能生成 registry、托管页面、确定性投影和可诊断 opera
 | testing | passed-agent-local | `.llm-wiki/verification/obsidian-v02-phase4-doctor-consistency.md`; 187 passed, 2 skipped | 2026-07-12 |
 | archive | done | `.llm-wiki/handoff/obsidian-v02-phase4-doctor-consistency-handoff.md` | 2026-07-12 |
 
-## 待确认问题
+## 集成状态与后续
 
-- 下一 gate 为 branch review；CI 与独立评审尚未执行。
+- Phase 4 已合入并推送至 `main@117b28c`；本地与 `origin/main` 已在该提交同步。
+- 验证权限仍为 `passed-agent-local`；CI 与独立评审尚未执行。
+- 下一独立 Flow 为 Phase 3.1 archive import 设计，v0.3 Inventory 后续处理未 ingest 文档发现。

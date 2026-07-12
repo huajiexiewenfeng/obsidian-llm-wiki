@@ -2,9 +2,9 @@
 
 ## Status
 
-- implementation: complete on `codex/v02-phase4-doctor-consistency`
+- implementation: merged into `main` at `117b28c`
 - verification: passed-agent-local
-- integration: pending branch review and user-selected merge workflow
+- integration: pushed to `origin/main`; local and remote `main` were synchronized at `117b28c`
 
 ## Delivered
 
@@ -22,9 +22,9 @@
 
 ## Residual Risk
 
-- CI and independent review have not run.
+- CI and independent review have not run; the recorded verification remains agent-local.
 - Windows symlink privilege and opt-in Skills CLI integration were unavailable in the local verification run.
 
 ## Next Gate
 
-Run branch review, then choose merge into `main`, push/PR, or keep the branch for further revision.
+Design Phase 3.1 archive import as a separate child flow. Treat CI or independent review as an optional authority upgrade, not as unfinished Phase 4 implementation.
