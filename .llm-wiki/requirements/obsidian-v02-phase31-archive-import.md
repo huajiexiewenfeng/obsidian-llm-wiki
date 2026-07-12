@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: Obsidian LLM Wiki v0.2 Phase 3.1 Archive Import
-- status: implementation-planned-agent-local
+- status: implemented-passed-agent-local
 - flow_id: obsidian-v02-phase31-archive-import
 - parent_flow_id: obsidian-v02-phase3-ingest-projection
 
@@ -71,10 +71,10 @@ Phase 3 已提供确定性 ingest/page/projection transaction，但暂时拒绝�
 | source | done | v0.2 总体设计、Phase 3 archive delivery boundary、Phase 4 handoff | 2026-07-12 |
 | design | revision-complete-agent-local | 正式设计已按外部评审修订；Inventory 契约修订见 `56f064a` | 2026-07-12 |
 | plan | done | `docs/superpowers/plans/2026-07-12-obsidian-llm-wiki-v0.2-phase31-archive-import-implementation-plan.md`；8 个 TDD 任务，自检通过 | 2026-07-12 |
-| development | pending | 尚未开始 | 2026-07-12 |
-| testing | baseline-passed-agent-local | 187 passed, 2 existing skips at `main@2414f68` | 2026-07-12 |
-| archive | pending | 实施完成后生成 handoff | 2026-07-12 |
+| development | done-agent-local | archive state/identity, streaming staging, no-replace transaction, Doctor, CLI, Skills, and docs implemented in `96284fd..e121f56` | 2026-07-12 |
+| testing | passed-agent-local | full suite: 229 passed, 2 platform/opt-in skips; Test Integrity Gate recorded | 2026-07-12 |
+| archive | handoff-ready-agent-local | `.llm-wiki/handoff/obsidian-v02-phase31-archive-import-handoff.md` | 2026-07-12 |
 
 ## 下一 Gate
 
-评审并确认 Phase 3.1 TDD 实施计划，然后选择 inline executing-plans 或用户明确要求的其他执行方式；确认前不修改 production code。
+运行独立评审或 CI 以提升验证权威，然后选择本地合并、推送 PR 或保留分支。v0.3 Inventory 实现仍是独立 Flow。

@@ -21,4 +21,6 @@
 | Phase 4 handoff | obsidian-v02-phase4-doctor-consistency | current | `.llm-wiki/handoff/obsidian-v02-phase4-doctor-consistency-handoff.md` | 2026-07-12 |
 | Phase 3.1 archive import design | obsidian-v02-phase31-archive-import | revised-agent-local | `docs/superpowers/specs/2026-07-12-obsidian-llm-wiki-v0.2-phase31-archive-import-design.md` | 2026-07-12 |
 | Phase 3.1 Change Brief | obsidian-v02-phase31-archive-import | implementation-planned-agent-local | `.llm-wiki/requirements/obsidian-v02-phase31-archive-import.md` | 2026-07-12 |
-| Phase 3.1 implementation plan | obsidian-v02-phase31-archive-import | drafted-agent-local | `docs/superpowers/plans/2026-07-12-obsidian-llm-wiki-v0.2-phase31-archive-import-implementation-plan.md` | 2026-07-12 |
+| Phase 3.1 implementation plan | obsidian-v02-phase31-archive-import | executed | `docs/superpowers/plans/2026-07-12-obsidian-llm-wiki-v0.2-phase31-archive-import-implementation-plan.md` | 2026-07-12 |
+| Phase 3.1 verification | obsidian-v02-phase31-archive-import | passed-agent-local | `.llm-wiki/verification/obsidian-v02-phase31-archive-import.md` | 2026-07-12 |
+| Phase 3.1 handoff | obsidian-v02-phase31-archive-import | current | `.llm-wiki/handoff/obsidian-v02-phase31-archive-import-handoff.md` | 2026-07-12 |

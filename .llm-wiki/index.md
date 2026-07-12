@@ -8,7 +8,7 @@
 | `2026-07-11-obsidian-wikilink-resolution` | bug | verified-agent-local | `bugs/2026-07-11-obsidian-wikilink-resolution.md` | `handoff/2026-07-11-obsidian-wikilink-resolution-handoff.md` |
 | `obsidian-v02-phase3-ingest-projection` | requirement | implemented-agent-local | `requirements/obsidian-v02-phase3-ingest-projection.md` | `handoff/obsidian-v02-phase3-ingest-projection-handoff.md` |
 | `obsidian-v02-phase4-doctor-consistency` | requirement | merged-and-pushed-agent-local | `requirements/obsidian-v02-phase4-doctor-consistency.md` | `handoff/obsidian-v02-phase4-doctor-consistency-handoff.md` |
-| `obsidian-v02-phase31-archive-import` | requirement | implementation-planned-agent-local | `requirements/obsidian-v02-phase31-archive-import.md` | pending |
+| `obsidian-v02-phase31-archive-import` | requirement | implemented-passed-agent-local | `requirements/obsidian-v02-phase31-archive-import.md` | `handoff/obsidian-v02-phase31-archive-import-handoff.md` |
 
 ## Entry Points
 
@@ -20,4 +20,4 @@
 
 ## Next Planned Route
 
-Review the Phase 3.1 TDD implementation plan, then choose its execution workflow. v0.3 Inventory remains the later implementation flow for discovering Vault documents that have not been ingested.
+Choose Phase 3.1 branch integration and optionally run CI/independent review. v0.3 Inventory remains the later implementation flow for discovering Vault documents that have not been ingested.
