@@ -21,8 +21,10 @@ Implementation scope:
 - frontmatter, managed-body, and projection markers that preserve user regions
 - unit and CLI coverage for idempotency, conflicts, interrupted writes, and CRLF
 
-Phase 2 does not implement `ingest apply`, Doctor migration, automatic
-migration, or Inventory. Those remain Phase 3, Phase 4, and v0.3 work.
+Phase 2 does not implement semantic apply, Doctor migration, automatic
+migration, or Inventory. Phase 3 now provides transactional `ingest apply`,
+`page apply`, and `projection rebuild`; Doctor consistency work remains Phase 4,
+binary `archive-import` is Phase 3.1, and automatic discovery remains v0.3 Inventory.
 
 ## Phase 0: Repository Skeleton
 

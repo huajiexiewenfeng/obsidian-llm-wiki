@@ -31,7 +31,17 @@ python scripts/llm_wiki.py state init --root <vault-or-control-center> --confirm
 The confirmed command creates `.meta` schema, source/page registries,
 operations, and change-log state through the shared lock and atomic writer. It
 does not ingest sources or make Markdown projections authoritative. Phase 3
-will connect semantic ingest to these contracts through `ingest apply`.
+connects semantic ingest to these contracts through `ingest apply`:
+
+```text
+resolve root -> read approved source outside the lock -> generate payload
+-> ingest apply dry-run -> user confirms the plan checksum
+-> ingest apply --confirm -> Doctor validate/report
+```
+
+`page apply` provides the same guarded path for source-less managed-page work.
+`projection rebuild` regenerates all three projections from registries and
+change log. Skills do not directly edit managed state or projection bodies.
 
 For existing vaults with many files, initialization must also act as onboarding. It should guide the user into a step-by-step build path instead of leaving them with empty folders.
 

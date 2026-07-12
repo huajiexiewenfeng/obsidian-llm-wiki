@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: Obsidian LLM Wiki v0.2 Phase 3 Ingest 接入与确定性索引投影
-- status: developing
+- status: implemented-agent-local
 - flow_id: obsidian-v02-phase3-ingest-projection
 
 ## 来源
@@ -39,8 +39,8 @@
 ## 计划
 
 - active_plan: `docs/superpowers/plans/2026-07-11-obsidian-llm-wiki-v0.2-phase3-ingest-projection-implementation-plan.md`
-- status: active
-- evidence: 用户已确认修订设计并要求写实施计划后直接执行；基线 101 tests passed, 2 skipped
+- status: executed
+- evidence: 实施提交 `ca9d6a4` 至 `bc3dc1d`；Task 8 文档与 E2E 待最终提交
 
 ## 外部依赖
 
@@ -58,9 +58,9 @@
 | source | done | v0.2 总体设计、Phase 2 handoff、Inventory 实施依赖 | 2026-07-11 |
 | design | done | 用户确认按修订设计继续 | 2026-07-11 |
 | plan | done | Phase 3 TDD 实施计划已写入仓库并完成覆盖自检 | 2026-07-11 |
-| development | active | 隔离分支 `codex/v02-phase3-ingest-projection`，基线 101 tests passed, 2 skipped | 2026-07-11 |
-| testing | pending |  |  |
-| archive | pending |  |  |
+| development | done | canonical runtime、三个 coordinator/CLI、Skill 与文档已实现 | 2026-07-12 |
+| testing | done | passed-agent-local：144 passed, 2 skipped, 0 failures；真实 unittest/CLI/E2E，Test Integrity risk low | 2026-07-12 |
+| archive | done | `.llm-wiki/handoff/obsidian-v02-phase3-ingest-projection-handoff.md` | 2026-07-12 |
 
 ## 待确认问题
 

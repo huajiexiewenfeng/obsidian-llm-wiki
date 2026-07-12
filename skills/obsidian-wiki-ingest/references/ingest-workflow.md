@@ -15,7 +15,7 @@
 |---|---|---|
 | Path index | Record where files are, what they are, topic, risk, recommendation, and wiki graph links | No |
 | Summary ingest | Read approved content and create wiki summaries | Optional |
-| Archive import | Copy approved files into `raw/`, then summarize | Yes |
+| Archive import | Phase 3.1 only; Phase 3 returns `unsupported-mode` | Not in Phase 3 |
 
 Default mode: path index.
 
@@ -66,11 +66,12 @@ source paths
   -> topic/type/risk grouping
   -> ingestion plan
   -> confirmation
-  -> approved processing
-  -> top-level ingest/index.md update
-  -> source index/summary generation
-  -> related topic/project/entity/SOP link update
-  -> index/log update
+  -> approved source read and payload generation outside the Core lock
+  -> ingest apply dry-run
+  -> user confirms the exact plan checksum
+  -> ingest apply --confirm
+  -> deterministic registry/page/projection transaction
+  -> Doctor validation
   -> ingestion report
 ```
 
@@ -118,7 +119,7 @@ For each approved external source or source group:
    - processing mode
    - status
    - gaps or confirmation needed
-3. Include in source pages:
+3. Put the generated managed source-page content into the operation payload:
    - original external path
    - processing mode: path-index, summary-ingest, or archive-import
    - import status
@@ -127,11 +128,10 @@ For each approved external source or source group:
    - key topics
    - useful-for section
    - related wiki links
-4. Update `<control-center>/wiki/index.md` so the source page and
-   `<control-center>/ingest/index.md` are discoverable from the wiki root.
-5. Update durable related pages under `<control-center>/wiki/topics/`,
-   `projects/`, `entities/`, or `sops/` with a backlink to the source page when
-   the relationship is clear.
+4. Let Core derive `<control-center>/wiki/index.md`, `ingest/index.md`, and
+   `wiki/log.md` from registries and change log. Do not supply projection bodies.
+5. Put durable related topic/project/entity/SOP managed bodies into the same
+   payload when the relationship is clear.
 6. If the relationship is uncertain, list candidate links in the ingestion
    report instead of editing broad pages.
 
@@ -145,3 +145,15 @@ approved external documents have source proxy nodes or an explicit grouping reas
 <control-center>/wiki/index.md links to that source page or ingest index
 ingestion report lists graph links updated or intentionally deferred
 ```
+
+## Deterministic Apply Contract
+
+- One payload represents one confirmed source.
+- It contains exactly one `role: source-proxy` page and zero or more derived pages.
+- Supported modes are `path-index` and `summary-ingest`.
+- Preview is mandatory and writes nothing.
+- Confirmed execution must reuse the same payload and returned `plan_checksum`.
+- Existing managed pages require `expected_managed_checksum`; missing markers
+  require takeover for that exact page or projection path.
+- File and stdin payloads use the same parser; generated bodies are not echoed
+  in public plan/error JSON.

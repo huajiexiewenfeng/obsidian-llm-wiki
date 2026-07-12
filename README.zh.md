@@ -157,6 +157,21 @@ python scripts/llm_wiki.py state init --root <vault-or-control-center> --confirm
 权威；`ingest/index.md`、`wiki/index.md`、`wiki/log.md` 仍是人类可读投影。完成状态初始化
 不代表任何资料已经 ingest。
 
+### v0.2 Phase 3 事务式写入
+
+Phase 3 增加三个默认 dry-run 的命令：
+
+```text
+python scripts/llm_wiki.py ingest apply --root <vault-or-control-center> --payload <file|-> --format json
+python scripts/llm_wiki.py page apply --root <vault-or-control-center> --payload <file|-> --format json
+python scripts/llm_wiki.py projection rebuild --root <vault-or-control-center> --payload <file|-> --format json
+```
+
+真正写入必须复用同一 payload，并追加 `--confirm --plan-checksum <sha256>`。
+退出码 `1` 表示可预期的未执行状态，具体原因读取 JSON `status`/`check`。
+Phase 3 只接受 `path-index`、`summary-ingest`；可靠的 `archive-import`
+复制属于 v0.2 Phase 3.1，新文件自动发现仍属于 v0.3 Inventory。
+
 ## 使用示例
 
 ### 首次设置 Vault
