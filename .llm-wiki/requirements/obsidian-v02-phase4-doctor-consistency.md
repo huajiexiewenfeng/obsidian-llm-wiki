@@ -68,11 +68,11 @@ Phase 3 已能生成 registry、托管页面、确定性投影和可诊断 opera
 |---|---|---|---|
 | source | done | v0.2 总体设计、Phase 3 设计与 handoff | 2026-07-12 |
 | design | done | 对话四部分设计确认；书面设计已生成并按外部评审的四项问题修订 | 2026-07-12 |
-| plan | pending |  |  |
+| plan | done | `docs/superpowers/plans/2026-07-12-obsidian-llm-wiki-v0.2-phase4-doctor-consistency-implementation-plan.md` | 2026-07-12 |
 | development | pending |  |  |
 | testing | pending |  |  |
 | archive | pending |  |  |
 
 ## 待确认问题
 
-- 用户复审修订后的书面设计后进入实施计划。
+- 设计与实施计划均已完成；下一 gate 为选择执行方式并开始 Task 1。

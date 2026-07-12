@@ -16,3 +16,4 @@
 | Phase 3 handoff | obsidian-v02-phase3-ingest-projection | current | `.llm-wiki/handoff/obsidian-v02-phase3-ingest-projection-handoff.md` | 2026-07-12 |
 | Phase 4 Doctor consistency design | obsidian-v02-phase4-doctor-consistency | review | `docs/superpowers/specs/2026-07-12-obsidian-llm-wiki-v0.2-phase4-doctor-consistency-design.md` | 2026-07-12 |
 | Phase 4 Change Brief | obsidian-v02-phase4-doctor-consistency | designed | `.llm-wiki/requirements/obsidian-v02-phase4-doctor-consistency.md` | 2026-07-12 |
+| Phase 4 Doctor implementation plan | obsidian-v02-phase4-doctor-consistency | current | `docs/superpowers/plans/2026-07-12-obsidian-llm-wiki-v0.2-phase4-doctor-consistency-implementation-plan.md` | 2026-07-12 |
