@@ -3,7 +3,7 @@
 ## 摘要
 
 - title: 发现 Obsidian Vault 中未摄入或摄入后变更的文档
-- status: ready
+- status: done
 - flow_id: obsidian-ingest-inventory
 
 ## 来源
@@ -44,7 +44,7 @@
 ## 计划
 
 - active_plan: `docs/superpowers/plans/2026-07-12-obsidian-v03-inventory-implementation-plan.md`
-- status: confirmed
+- status: executed
 - evidence: 用户确认继续开发，Inventory 为当前最高优先级主线
 
 ## 外部依赖
@@ -67,12 +67,12 @@
 | design | done | 用户确认的 `docs/superpowers/specs/2026-07-11-obsidian-ingest-inventory-design.md` | 2026-07-12 |
 | plan | done | `docs/superpowers/plans/2026-07-12-obsidian-v03-inventory-implementation-plan.md` | 2026-07-12 |
 | development | done | `codex/v03-inventory` commits through Inventory CLI, Doctor, skills, and E2E | 2026-07-12 |
-| testing | done | 256-test full suite plus installed-runtime temporary/real Vault read-only trials | 2026-07-12 |
-| archive | pending |  |  |
+| testing | done | 257-test full suite plus installed-runtime temporary/real Vault read-only trials; trust `passed-agent-local` | 2026-07-12 |
+| archive | done | `.llm-wiki/handoff/obsidian-ingest-inventory-handoff.md` | 2026-07-12 |
 
 ## 待确认问题
 
-- 用户可开始本地测试；真实 Vault 尚缺 v0.2 state，需先自行确认 `state init`，再确认 Inventory baseline。
+- 无阻塞问题；用户已要求将已验证分支合并到本地 `main`。
 
 ## 说明
 

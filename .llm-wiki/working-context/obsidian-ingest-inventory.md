@@ -3,7 +3,7 @@
 ## 生命周期
 
 - flow_id: obsidian-ingest-inventory
-- status: ready-for-user-test
+- status: complete
 - branch: codex/v03-inventory
 - baseline: main@0cb31a5
 

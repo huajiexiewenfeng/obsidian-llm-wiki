@@ -27,3 +27,7 @@
 | Doctor control-center Wikilink Bug Brief | 2026-07-12-doctor-control-center-wikilink | fixed-pushed-agent-local | `.llm-wiki/bugs/2026-07-12-doctor-control-center-wikilink.md` | 2026-07-12 |
 | Doctor control-center Wikilink verification | 2026-07-12-doctor-control-center-wikilink | passed-agent-local | `.llm-wiki/verification/2026-07-12-doctor-control-center-wikilink.md` | 2026-07-12 |
 | Doctor control-center Wikilink handoff | 2026-07-12-doctor-control-center-wikilink | current | `.llm-wiki/handoff/2026-07-12-doctor-control-center-wikilink-handoff.md` | 2026-07-12 |
+| Inventory v0.3 design | obsidian-ingest-inventory | approved | `docs/superpowers/specs/2026-07-11-obsidian-ingest-inventory-design.md` | 2026-07-12 |
+| Inventory v0.3 implementation plan | obsidian-ingest-inventory | executed | `docs/superpowers/plans/2026-07-12-obsidian-v03-inventory-implementation-plan.md` | 2026-07-12 |
+| Inventory v0.3 Change Brief | obsidian-ingest-inventory | done-agent-local | `.llm-wiki/requirements/obsidian-ingest-inventory.md` | 2026-07-12 |
+| Inventory v0.3 handoff | obsidian-ingest-inventory | current | `.llm-wiki/handoff/obsidian-ingest-inventory-handoff.md` | 2026-07-12 |
