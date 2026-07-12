@@ -97,15 +97,15 @@
 - Produces: `InventoryFinding`、`InventoryInspection`。
 - Produces: `inspect_inventory(vault_root: Path, control_center: Path, *, scope_override: InventoryScope | None = None, verify_content: bool = False) -> InventoryInspection`。
 
-- [ ] **Step 1: 写比较优先级失败测试**
+- [x] **Step 1: 写比较优先级失败测试**
 
   覆盖 `missing-ingest-inventory`、`invalid-ingest-inventory`、`inventory-scope-changed`、`inventory-path-collision`、`uningested-source`、`stale-ingested-source`、`inventory-scan-incomplete`、`sensitive-scope-change`。断言 collision 阻断自动关联，processed 优先于 ignored，ignored 只抑制无 processed 证据的未摄入 finding。
 
-- [ ] **Step 2: 写完整 processed 证据失败测试**
+- [x] **Step 2: 写完整 processed 证据失败测试**
 
   只有以下条件同时满足才不报告 `uningested-source`：source 为 `processed`、`canonical_path` 匹配当前文件、`proxy_page_id` 在 pages registry 中存在、对应托管 proxy 文件存在。仅有 `ingest/index.md` 或缺失 proxy 的记录不能作为 processed。
 
-- [ ] **Step 3: 实现确定性比较器**
+- [x] **Step 3: 实现确定性比较器**
 
   ```python
   @dataclass(frozen=True)
@@ -128,11 +128,11 @@
 
   source 匹配使用 canonical resolved path 与独立 casefold 键；stale 默认比较 `size + mtime_ns`。仅在 `verify_content=True` 且 source 有 checksum 时调用 `file_checksum()`，相同则本次消除 stale。
 
-- [ ] **Step 4: 验证零写入与脱敏**
+- [x] **Step 4: 验证零写入与脱敏**
 
   测试前后递归记录 Vault 的路径、大小、mtime；运行 inspect 后完全相同。敏感 finding 只包含 alias/count/latest_mtime，不含配置 glob 或任何文件名。
 
-- [ ] **Step 5: 运行测试并提交**
+- [x] **Step 5: 运行测试并提交**
 
   Run: `python -m pytest tests/test_llm_wiki_inventory.py -q`
 

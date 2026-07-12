@@ -8,6 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Mapping
 
+from llm_wiki_core.state import (
+    PageRecord,
+    SourceRecord,
+    decode_page_registry,
+    decode_source_registry,
+    file_checksum,
+)
+
 
 INVENTORY_SCHEMA_VERSION = 1
 INVENTORY_DEFAULTS_VERSION = 1
@@ -155,6 +163,25 @@ class InventoryObservation:
     sensitive_scopes: Mapping[str, SensitiveSummary]
     errors: tuple[InventoryScanError, ...]
     collisions: tuple[tuple[str, ...], ...]
+
+
+@dataclass(frozen=True)
+class InventoryFinding:
+    check: str
+    severity: str
+    path: str | None
+    message: str
+    hint: str | None = None
+    count: int | None = None
+
+
+@dataclass(frozen=True)
+class InventoryInspection:
+    scope: InventoryScope
+    observation: InventoryObservation
+    baseline: InventoryBaseline | None
+    findings: tuple[InventoryFinding, ...]
+    complete: bool
 
 
 def default_inventory_scope(control_center_name: str) -> InventoryScope:
@@ -445,3 +472,221 @@ def load_inventory(path: Path) -> InventoryBaseline:
         return _decode_inventory(_require_mapping(payload, "inventory"))
     except (OSError, UnicodeError, json.JSONDecodeError, InventoryValidationError) as error:
         raise InventoryLoadError(f"invalid inventory: {error}") from error
+
+
+def _finding(
+    check: str,
+    severity: str,
+    path: str | None,
+    message: str,
+    *,
+    hint: str | None = None,
+    count: int | None = None,
+) -> InventoryFinding:
+    return InventoryFinding(check, severity, path, message, hint, count)
+
+
+def _read_registry(path: Path, decoder):
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(payload, dict):
+        raise InventoryLoadError(f"invalid registry: {path.name}")
+    return decoder(payload)
+
+
+def _path_key(path: Path) -> str:
+    normalized = path.expanduser().resolve().as_posix()
+    return normalized.casefold() if os.name == "nt" else normalized
+
+
+def _valid_processed_sources(
+    control_center: Path,
+    sources: Mapping[str, SourceRecord],
+    pages: Mapping[str, PageRecord],
+) -> dict[str, SourceRecord]:
+    result: dict[str, SourceRecord] = {}
+    ambiguous: set[str] = set()
+    for source_id, source in sources.items():
+        if source.status != "processed" or source.proxy_page_id is None:
+            continue
+        page = pages.get(source.proxy_page_id)
+        if page is None or source_id not in page.source_ids:
+            continue
+        proxy = control_center / Path(*PurePosixPath(page.relative_path).parts)
+        if not proxy.is_file():
+            continue
+        try:
+            key = _path_key(Path(source.canonical_path))
+        except (OSError, RuntimeError):
+            continue
+        if key in result or key in ambiguous:
+            # Ambiguous source evidence must never be selected automatically.
+            result.pop(key, None)
+            ambiguous.add(key)
+            continue
+        result[key] = source
+    return result
+
+
+def _scope_equal(left: InventoryScope, right: InventoryScope) -> bool:
+    return _scope_payload(left) == _scope_payload(right)
+
+
+def inspect_inventory(
+    vault_root: Path,
+    control_center: Path,
+    *,
+    scope_override: InventoryScope | None = None,
+    verify_content: bool = False,
+) -> InventoryInspection:
+    vault = vault_root.expanduser().resolve()
+    control = control_center.expanduser().resolve()
+    control_relative = control.relative_to(vault).as_posix()
+    inventory_path = control / ".meta/inventory.json"
+    default_scope = default_inventory_scope(control_relative)
+
+    if not inventory_path.is_file():
+        scope = scope_override or default_scope
+        observation = scan_inventory(vault, control, scope)
+        finding = _finding(
+            "missing-ingest-inventory",
+            "WARN",
+            f"{control_relative}/.meta/inventory.json",
+            "Inventory baseline is missing; un-ingested document status is incomplete.",
+            hint="Review inventory initialize dry-run before confirming a baseline.",
+        )
+        return InventoryInspection(scope, observation, None, (finding,), False)
+
+    try:
+        baseline = load_inventory(inventory_path)
+    except InventoryLoadError as error:
+        scope = scope_override or default_scope
+        observation = scan_inventory(vault, control, scope)
+        finding = _finding(
+            "invalid-ingest-inventory",
+            "ERROR",
+            f"{control_relative}/.meta/inventory.json",
+            str(error),
+            hint="Review and repair the baseline; Doctor will not overwrite it.",
+        )
+        return InventoryInspection(scope, observation, None, (finding,), False)
+
+    scope = scope_override or baseline.scope
+    observation = scan_inventory(vault, control, scope)
+    findings: list[InventoryFinding] = []
+    complete = True
+
+    if not _scope_equal(scope, baseline.scope):
+        findings.append(
+            _finding(
+                "inventory-scope-changed",
+                "WARN",
+                f"{control_relative}/.meta/inventory.json",
+                "Current Inventory scope differs from the confirmed baseline scope.",
+                hint="Review inventory configure dry-run before confirming the new scope.",
+            )
+        )
+        complete = False
+
+    collision_paths: set[str] = set()
+    for collision in observation.collisions:
+        collision_paths.update(collision)
+        findings.append(
+            _finding(
+                "inventory-path-collision",
+                "ERROR",
+                collision[0],
+                "Multiple Vault paths collide under platform path comparison rules.",
+                hint="Rename one path before Inventory can associate records safely.",
+                count=len(collision),
+            )
+        )
+        complete = False
+
+    for error in observation.errors:
+        findings.append(
+            _finding(
+                "inventory-scan-incomplete",
+                "WARN",
+                error.path,
+                f"Inventory could not inspect one path ({error.message}).",
+                hint="Resolve the filesystem access issue and rerun Inventory.",
+            )
+        )
+        complete = False
+
+    for alias, current in observation.sensitive_scopes.items():
+        previous = baseline.sensitive_scopes.get(alias)
+        if previous != current:
+            findings.append(
+                _finding(
+                    "sensitive-scope-change",
+                    "WARN",
+                    alias,
+                    "Sensitive scope metadata changed.",
+                    hint="Review the sensitive scope through its approved alias.",
+                    count=current.document_count,
+                )
+            )
+
+    try:
+        sources = _read_registry(control / ".meta/sources.json", decode_source_registry)
+        pages = _read_registry(control / ".meta/pages.json", decode_page_registry)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, InventoryLoadError):
+        sources = {}
+        pages = {}
+    processed_by_path = _valid_processed_sources(control, sources, pages)
+
+    for relative_path, signature in observation.documents.items():
+        if relative_path in collision_paths:
+            continue
+        absolute = vault / Path(*PurePosixPath(relative_path).parts)
+        source = processed_by_path.get(_path_key(absolute))
+        if source is not None:
+            current_fingerprint = {"size": signature.size, "mtime_ns": signature.mtime_ns}
+            if source.fingerprint != current_fingerprint:
+                checksum_matches = False
+                if verify_content and source.checksum is not None:
+                    try:
+                        checksum_matches = file_checksum(absolute) == source.checksum
+                    except OSError:
+                        checksum_matches = False
+                if not checksum_matches:
+                    findings.append(
+                        _finding(
+                            "stale-ingested-source",
+                            "WARN",
+                            relative_path,
+                            "Processed source metadata changed after ingest.",
+                            hint="Review the source and rerun ingest apply if the change is intended.",
+                        )
+                    )
+            continue
+
+        document = baseline.documents.get(relative_path)
+        if document is not None and document.disposition == "ignored":
+            continue
+        findings.append(
+            _finding(
+                "uningested-source",
+                "WARN",
+                relative_path,
+                "Vault document has no complete processed ingest evidence.",
+                hint="Review the document and create an ingest plan.",
+            )
+        )
+
+    severity_order = {"ERROR": 0, "WARN": 1, "INFO": 2}
+    findings.sort(
+        key=lambda item: (
+            severity_order.get(item.severity, 9),
+            item.check,
+            item.path or "",
+        )
+    )
+    return InventoryInspection(
+        scope=scope,
+        observation=observation,
+        baseline=baseline,
+        findings=tuple(findings),
+        complete=complete,
+    )
