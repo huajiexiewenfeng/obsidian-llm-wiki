@@ -11,6 +11,7 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+from llm_wiki_core.doctor_state import ConsistencyIssue, inspect_state_consistency
 from llm_wiki_core.root import ResolvedRoot, RootIssue, resolve_root
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -46,6 +47,17 @@ def finding_from_root_issue(issue: RootIssue) -> Finding:
         path=issue.path,
         message=issue.message,
         hint=issue.hint,
+    )
+
+
+def finding_from_consistency_issue(issue: ConsistencyIssue) -> Finding:
+    return Finding(
+        check=issue.check,
+        severity=issue.severity,
+        path=issue.relative_path,
+        message=issue.message,
+        line=issue.line,
+        hint=issue.recovery_hint,
     )
 
 
@@ -119,10 +131,15 @@ def repo_path(root: Path, path: Path) -> str:
 
 
 def redact_sensitive_text(value: str) -> str:
-    return re.sub(
+    redacted = re.sub(
         r"(?i)\b(password|token|secret|access[_-]?key|secret[_-]?key|cookie)\s*([:=_-])\s*[^\\/\s)]+",
         lambda match: f"{match.group(1)}{match.group(2)}<redacted>",
         value,
+    )
+    return re.sub(
+        r"(?i)(?<![A-Za-z0-9])(?:ak|sk)-[A-Za-z0-9_-]{16,}",
+        "<redacted>",
+        redacted,
     )
 
 
@@ -420,6 +437,11 @@ def run_checks(root: ResolvedRoot, state: WikiState) -> list[Finding]:
     findings.extend(check_links(root))
     findings.extend(check_ingest(root, state))
     findings.extend(check_safety(root))
+    if root.control_center is not None:
+        findings.extend(
+            finding_from_consistency_issue(issue)
+            for issue in inspect_state_consistency(root.control_center)
+        )
     return findings
 
 

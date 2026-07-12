@@ -1,9 +1,11 @@
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +14,12 @@ SCRIPT = REPO_ROOT / "scripts" / "obsidian_wiki_doctor.py"
 RUNTIME_SCRIPTS = REPO_ROOT / "skills" / "obsidian-wiki-runtime" / "scripts"
 sys.path.insert(0, str(RUNTIME_SCRIPTS))
 import obsidian_wiki_doctor as doctor
+from llm_wiki_core.projection import (
+    render_ingest_index,
+    render_wiki_index,
+    render_wiki_log,
+)
+from llm_wiki_core.state import OperationRecord
 
 
 def write(path: Path, text: str) -> Path:
@@ -26,6 +34,64 @@ def make_control_center(base: Path) -> Path:
     write(control / "wiki" / "log.md", "# Log\n")
     write(control / "wiki" / "topics" / "topic.md", "# Topic\n\nUseful topic text.\n")
     return control
+
+
+def projection_page(body: str) -> str:
+    return (
+        "<!-- llm-wiki:projection:start -->\n"
+        f"{body.rstrip()}\n"
+        "<!-- llm-wiki:projection:end -->\n"
+    )
+
+
+def write_json(path: Path, payload: object) -> None:
+    write(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+
+def make_phase3_control_center(base: Path) -> Path:
+    control = make_control_center(base)
+    meta = control / ".meta"
+    write_json(
+        meta / "schema.json",
+        {"schema_version": 1, "state_format": "obsidian-llm-wiki"},
+    )
+    for name in ("sources.json", "pages.json", "operations.json"):
+        write_json(meta / name, {"schema_version": 1, "records": {}})
+    write(meta / "change-log.jsonl", "")
+    write(control / "wiki/index.md", projection_page(render_wiki_index({})))
+    write(control / "ingest/index.md", projection_page(render_ingest_index({}, {})))
+    write(control / "wiki/log.md", projection_page(render_wiki_log(())))
+    return control
+
+
+def write_active_operation(control: Path) -> None:
+    acquired = datetime.now(timezone.utc)
+    started = acquired + timedelta(milliseconds=1)
+    operation = OperationRecord(
+        operation_id="op-active",
+        idempotency_key="key-active",
+        kind="ingest-apply",
+        record_ids=(),
+        current_step="write-pages",
+        status="running",
+        started_at=started.isoformat(),
+        updated_at=(started + timedelta(milliseconds=1)).isoformat(),
+    )
+    write_json(
+        control / ".meta/operations.json",
+        {"schema_version": 1, "records": {operation.operation_id: operation.to_dict()}},
+    )
+    write_json(
+        control / ".meta/lock.json",
+        {
+            "lock_id": "lock-active",
+            "pid": os.getpid(),
+            "host": socket.gethostname(),
+            "command": "ingest apply",
+            "acquired_at": acquired.isoformat(),
+            "target": str(control.resolve()),
+        },
+    )
 
 
 def run_doctor(
@@ -318,6 +384,111 @@ class ValidationCheckTests(unittest.TestCase):
             self.assertTrue(payload["findings"])
             self.assertEqual(safety["score"], 0)
             self.assertLess(payload["score"]["score"], 100)
+
+
+class Phase4IntegrationTests(unittest.TestCase):
+    def test_active_operation_info_renders_in_json_and_does_not_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_active_operation(control)
+
+            result = run_doctor(
+                "validate",
+                "--root",
+                str(control),
+                "--format",
+                "json",
+                "--fail-on",
+                "error",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        findings = json.loads(result.stdout)
+        active = [item for item in findings if item["check"] == "active-operation"]
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]["severity"], "INFO")
+        self.assertEqual(
+            set(active[0]),
+            {"check", "severity", "path", "message", "line", "hint"},
+        )
+
+    def test_active_operation_info_renders_in_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_active_operation(control)
+
+            result = run_doctor(
+                "validate",
+                "--root",
+                str(control),
+                "--format",
+                "text",
+                "--fail-on",
+                "error",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("INFO: active-operation:", result.stdout)
+
+    def test_phase4_error_fails_validate_but_not_score_or_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            (control / ".meta/pages.json").unlink()
+
+            validate = run_doctor(
+                "validate",
+                "--root",
+                str(control),
+                "--format",
+                "json",
+                "--fail-on",
+                "error",
+            )
+            score = run_doctor("score", "--root", str(control), "--format", "json")
+            report = run_doctor("report", "--root", str(control), "--format", "json")
+
+        self.assertEqual(validate.returncode, 1, validate.stderr)
+        self.assertIn("missing-state-file", [item["check"] for item in json.loads(validate.stdout)])
+        self.assertEqual(score.returncode, 0, score.stderr)
+        self.assertEqual(report.returncode, 0, report.stderr)
+        score_payload = json.loads(score.stdout)
+        self.assertEqual(score_payload["score_version"], 1)
+        self.assertEqual(len(score_payload["dimensions"]), 5)
+
+    def test_phase4_finding_path_is_redacted(self):
+        secret_name = "-sk-abcdefghijklmnopqrstuvwxyz123456.md"
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            write_json(
+                control / ".meta/pages.json",
+                {
+                    "schema_version": 1,
+                    "records": {
+                        "page-secret": {
+                            "page_id": "page-secret",
+                            "relative_path": f"wiki/topics/{secret_name}",
+                            "page_type": "topic",
+                            "source_ids": [],
+                            "managed_checksum": "sha256:missing",
+                            "revision": 1,
+                        }
+                    },
+                },
+            )
+
+            result = run_doctor(
+                "validate",
+                "--root",
+                str(control),
+                "--format",
+                "json",
+                "--fail-on",
+                "none",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(secret_name, result.stdout)
+        self.assertIn("<redacted>", result.stdout)
 
 
 class ScoreAndReportTests(unittest.TestCase):
