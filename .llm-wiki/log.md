@@ -9,3 +9,4 @@
 ## 2026-07-12
 
 - Implemented Phase 3 transactional ingest/page/projection Core and CLI on `codex/v02-phase3-ingest-projection`; added agent-local unit, failure-injection, CLI, and two-source E2E coverage.
+- Confirmed and recorded the Phase 4 Doctor state-consistency design; implementation remains gated on written-spec review.
