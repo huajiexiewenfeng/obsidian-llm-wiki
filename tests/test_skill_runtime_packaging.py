@@ -80,6 +80,22 @@ class RuntimeSkillLayoutTests(unittest.TestCase):
                 for term in required:
                     self.assertIn(term, text)
 
+    def test_doctor_requires_explicit_missing_baseline_ingest_guidance(self):
+        documents = (
+            SKILLS_ROOT / "obsidian-wiki-doctor" / "SKILL.md",
+            SKILLS_ROOT / "obsidian-wiki-doctor" / "references" / "report-template.md",
+        )
+        required_lines = (
+            "索引可达的历史文档 -> known-existing -> 不需要 ingest",
+            "不可达的历史文档 -> unverified/source-island -> 不自动 ingest",
+            "基线后新增 -> discovered/uningested-source -> 待处理",
+        )
+        for path in documents:
+            with self.subTest(path=path):
+                text = path.read_text(encoding="utf-8")
+                for line in required_lines:
+                    self.assertIn(line, text)
+
 
 if __name__ == "__main__":
     unittest.main()

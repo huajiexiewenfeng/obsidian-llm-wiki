@@ -47,6 +47,24 @@ strictly read-only. It compares supported document metadata with
 - Invalid baselines, collisions, or incomplete scans block completeness claims.
 - Sensitive scopes expose alias/count summaries only.
 
+### Mandatory Missing-Baseline Explanation
+
+Whenever `missing-ingest-inventory` is present, the Chinese report must state
+these three lines verbatim. Do not merely say that all current documents need
+classification or tracking:
+
+```text
+索引可达的历史文档 -> known-existing -> 不需要 ingest
+不可达的历史文档 -> unverified/source-island -> 不自动 ingest
+基线后新增 -> discovered/uningested-source -> 待处理
+```
+
+Explain that the initial baseline classifies existing history; it does not turn
+the current Vault into an ingest backlog. When required `.meta` state files are
+also missing, recommend state initialization first, then Inventory initialize
+dry-run and explicit confirmation. Never imply that the current document count
+equals the number of documents requiring ingest.
+
 Use `inventory inspect --format json` for the complete non-sensitive candidate
 list. Text output groups large sets and shows at most 20 examples per directory.
 Graph traversal reads only ordinary Inventory documents and Wiki pages; excluded
@@ -101,6 +119,9 @@ python "<runtime-script>" doctor score --root <control-center-or-vault> --format
 - Never print secret values.
 - Keep Chinese-first explanations for Chinese users.
 - Explain `not-applicable` dimensions instead of treating them as failures.
+- If a sensitive-pattern finding exists, recommend verification first. Only a
+  confirmed real credential should be rotated and prioritized ahead of state
+  initialization; a suspected or redacted example does not block Inventory.
 - If the user asks to repair, hand off to `obsidian-wiki-maintain` with a narrow repair scope.
 - Explain archive registry/path/checksum drift, unregistered `raw/` files, and
   orphan archive staging files as read-only findings; never repair them here.

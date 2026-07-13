@@ -281,6 +281,11 @@ class InventoryInspectionTests(unittest.TestCase):
             result = inspect_inventory(vault, control)
 
         self.assertEqual([item.check for item in result.findings], ["missing-ingest-inventory"])
+        self.assertIn("known-existing", result.findings[0].hint)
+        self.assertIn("do not require ingest", result.findings[0].hint)
+        self.assertIn("unverified", result.findings[0].hint)
+        self.assertIn("not auto-ingested", result.findings[0].hint)
+        self.assertIn("post-baseline", result.findings[0].hint)
         self.assertFalse(result.complete)
 
     def test_reports_uningested_document_after_baseline_exists(self):

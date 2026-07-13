@@ -642,8 +642,13 @@ def inspect_inventory(
             "missing-ingest-inventory",
             "WARN",
             f"{control_relative}/.meta/inventory.json",
-            "Inventory baseline is missing; un-ingested document status is incomplete.",
-            hint="Review inventory initialize dry-run before confirming a baseline.",
+            "Inventory baseline is missing; historical and post-baseline document classification is incomplete.",
+            hint=(
+                "Review inventory initialize dry-run before confirmation: index-reachable "
+                "history becomes known-existing; known-existing documents do not require ingest; unreachable "
+                "history becomes unverified and is not auto-ingested; only post-baseline "
+                "additions become discovered/uningested-source."
+            ),
             count=len(observation.documents),
         )
         return InventoryInspection(scope, observation, None, (finding,), False)
