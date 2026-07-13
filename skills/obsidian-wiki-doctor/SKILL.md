@@ -36,13 +36,21 @@ strictly read-only. It compares supported document metadata with
 `.meta/inventory.json`, `.meta/sources.json`, and `.meta/pages.json`.
 
 - `missing-ingest-inventory`: show an initialize dry-run; never initialize automatically.
-- `uningested-source`: a supported document lacks complete processed registry evidence.
+- Initial baseline documents reachable from `wiki/index.md` are `known-existing`;
+  disconnected historical documents are `unverified`, not new ingest candidates.
+- `source-island`: an `unverified` historical document is outside the rooted graph.
+- `source-coverage-lost`: a `known-existing` document lost its rooted graph connection.
+- `uningested-source`: a `discovered` post-baseline document lacks processed evidence.
 - `stale-ingested-source`: processed source metadata changed after ingest.
+- `orphan-wiki-page`: a Wiki page is not reachable from `wiki/index.md`.
+- `detached-wiki-component`: two or more Wiki pages form a disconnected component.
 - Invalid baselines, collisions, or incomplete scans block completeness claims.
 - Sensitive scopes expose alias/count summaries only.
 
 Use `inventory inspect --format json` for the complete non-sensitive candidate
 list. Text output groups large sets and shows at most 20 examples per directory.
+Graph traversal reads only ordinary Inventory documents and Wiki pages; excluded
+and sensitive scopes are never opened for relationship discovery.
 
 Diagnose an Obsidian LLM Wiki with the deterministic doctor engine.
 

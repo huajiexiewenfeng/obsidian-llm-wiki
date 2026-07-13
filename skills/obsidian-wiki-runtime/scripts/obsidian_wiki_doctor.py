@@ -6,13 +6,14 @@ import json
 import re
 import sys
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from llm_wiki_core.doctor_state import ConsistencyIssue, inspect_state_consistency
-from llm_wiki_core.inventory import InventoryFinding, inspect_inventory
+from llm_wiki_core.inventory import InventoryFinding, InventoryInspection, inspect_inventory
+from llm_wiki_core.knowledge_graph import analyze_knowledge_graph
 from llm_wiki_core.root import ResolvedRoot, RootIssue, resolve_root
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -176,7 +177,8 @@ def safe_finding(finding: Finding) -> Finding:
 
 def safe_finding_dict(finding: Finding) -> dict[str, object]:
     payload = asdict(safe_finding(finding))
-    payload.pop("count", None)
+    if payload.get("count") is None:
+        payload.pop("count", None)
     return payload
 
 def markdown_link_target(target: str) -> str:
@@ -383,6 +385,64 @@ def check_links(root: ResolvedRoot) -> list[Finding]:
     return findings
 
 
+def check_graph_connectivity(
+    root: ResolvedRoot,
+    inventory: InventoryInspection,
+) -> list[Finding]:
+    if (
+        root.vault_root is None
+        or root.wiki_root is None
+        or inventory.baseline is None
+    ):
+        return []
+    analysis = analyze_knowledge_graph(
+        root.vault_root,
+        root.wiki_root,
+        inventory.observation.documents,
+    )
+    orphan_pages = tuple(
+        path for path in analysis.orphan_wiki_pages
+        if path.casefold() != "log.md"
+    )
+    findings = [
+        Finding(
+            check="orphan-wiki-page",
+            severity="WARN",
+            path=path,
+            message="Wiki page is not reachable from wiki/index.md.",
+            hint="Link the page into the rooted Wiki graph or remove it from managed Wiki scope.",
+        )
+        for path in orphan_pages
+    ]
+    orphan_vault_paths = {
+        (root.wiki_root / Path(*PurePosixPath(path).parts))
+        .resolve()
+        .relative_to(root.vault_root.resolve())
+        .as_posix()
+        for path in orphan_pages
+    }
+    for component in analysis.detached_components:
+        members = tuple(path for path in component if path in orphan_vault_paths)
+        if len(members) < 2:
+            continue
+        first = members[0]
+        first_relative = (
+            (root.vault_root / Path(*PurePosixPath(first).parts))
+            .resolve()
+            .relative_to(root.wiki_root.resolve())
+            .as_posix()
+        )
+        findings.append(Finding(
+            check="detached-wiki-component",
+            severity="WARN",
+            path=first_relative,
+            message=f"{len(members)} Wiki pages form a component detached from wiki/index.md.",
+            hint="Connect one representative page to the rooted Wiki graph.",
+            count=len(members),
+        ))
+    return findings
+
+
 def check_ingest(root: ResolvedRoot, state: WikiState) -> list[Finding]:
     if not state.ingest_started or root.control_center is None or root.wiki_root is None:
         return []
@@ -461,10 +521,12 @@ def run_checks(root: ResolvedRoot, state: WikiState) -> list[Finding]:
             for issue in inspect_state_consistency(root.control_center)
         )
     if root.vault_root is not None and root.control_center is not None:
+        inventory = inspect_inventory(root.vault_root, root.control_center)
         findings.extend(
             finding_from_inventory_issue(issue)
-            for issue in inspect_inventory(root.vault_root, root.control_center).findings
+            for issue in inventory.findings
         )
+        findings.extend(check_graph_connectivity(root, inventory))
     return findings
 
 
@@ -545,7 +607,14 @@ def build_score_report(root: ResolvedRoot, state: WikiState, findings: list[Find
         ])
     else:
         navigation_error = has_error(findings, "missing-wiki-index", "missing-wiki-log", "broken-index-link")
-        navigation_warning = has_warning(findings, "missing-roadmap", "missing-knowledge-map", "broken-internal-link")
+        navigation_warning = has_warning(
+            findings,
+            "missing-roadmap",
+            "missing-knowledge-map",
+            "broken-internal-link",
+            "orphan-wiki-page",
+            "detached-wiki-component",
+        )
         if navigation_error:
             navigation_score = 0
             navigation_message = "Index, log, or root navigation has blocking errors."
@@ -589,6 +658,8 @@ def build_score_report(root: ResolvedRoot, state: WikiState, findings: list[Find
             findings,
             "uningested-source",
             "stale-ingested-source",
+            "source-island",
+            "source-coverage-lost",
         )
         if ingest_blocking:
             dimensions.append(ScoreDimension(

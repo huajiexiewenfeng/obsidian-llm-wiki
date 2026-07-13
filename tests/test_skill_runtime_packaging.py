@@ -24,6 +24,7 @@ REQUIRED_RUNTIME_FILES = (
     "scripts/llm_wiki_core/doctor_state.py",
     "scripts/llm_wiki_core/archive.py",
     "scripts/llm_wiki_core/inventory.py",
+    "scripts/llm_wiki_core/knowledge_graph.py",
 )
 
 
@@ -60,6 +61,24 @@ class RuntimeSkillLayoutTests(unittest.TestCase):
                 self.assertIn("runpy.run_path", text)
                 self.assertIn(target, text)
                 self.assertIsNone(re.search(r"from llm_wiki_core|^def build_parser", text, re.M))
+
+    def test_doctor_documents_rooted_graph_inventory_vocabulary(self):
+        documents = (
+            SKILLS_ROOT / "obsidian-wiki-doctor" / "SKILL.md",
+            SKILLS_ROOT / "obsidian-wiki-doctor" / "references" / "doctor-checks.md",
+            REPO_ROOT / "README.md",
+        )
+        required = (
+            "known-existing",
+            "unverified",
+            "source-island",
+            "orphan-wiki-page",
+        )
+        for path in documents:
+            with self.subTest(path=path):
+                text = path.read_text(encoding="utf-8")
+                for term in required:
+                    self.assertIn(term, text)
 
 
 if __name__ == "__main__":

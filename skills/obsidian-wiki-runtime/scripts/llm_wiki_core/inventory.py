@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Mapping
 
+from llm_wiki_core.knowledge_graph import analyze_knowledge_graph
 from llm_wiki_core.state import (
     PageRecord,
     SourceRecord,
@@ -152,13 +153,13 @@ class InventoryDocument:
     ignore_reason: str | None
 
     def __post_init__(self) -> None:
-        if self.disposition not in {"discovered", "ignored"}:
+        if self.disposition not in {"known-existing", "unverified", "discovered", "ignored"}:
             raise InventoryValidationError("inventory disposition is invalid")
         if self.disposition == "ignored":
             if not isinstance(self.ignore_reason, str) or not self.ignore_reason.strip():
                 raise InventoryValidationError("ignored document requires ignore_reason")
         elif self.ignore_reason is not None:
-            raise InventoryValidationError("discovered document must not have ignore_reason")
+            raise InventoryValidationError("non-ignored document must not have ignore_reason")
 
 
 @dataclass(frozen=True)
@@ -238,10 +239,19 @@ class InventoryMutationPlan:
     affected_count: int = 0
 
     def to_public_dict(self) -> dict[str, object]:
+        disposition_counts = {
+            disposition: count
+            for disposition in ("known-existing", "unverified", "discovered", "ignored")
+            if (count := sum(
+                document.disposition == disposition
+                for document in self.baseline.documents.values()
+            ))
+        }
         return {
             "action": self.action,
             "candidate_count": self.candidate_count,
             "affected_count": self.affected_count,
+            "disposition_counts": disposition_counts,
             "sensitive_scopes": {
                 alias: {
                     "document_count": summary.document_count,
@@ -717,6 +727,7 @@ def inspect_inventory(
         sources = {}
         pages = {}
     processed_by_path = _valid_processed_sources(control, sources, pages)
+    graph = analyze_knowledge_graph(vault, control / "wiki", observation.documents)
 
     for relative_path, signature in observation.documents.items():
         if relative_path in collision_paths:
@@ -746,6 +757,30 @@ def inspect_inventory(
 
         document = baseline.documents.get(relative_path)
         if document is not None and document.disposition == "ignored":
+            continue
+        if document is not None and document.disposition in {"known-existing", "unverified"}:
+            if relative_path in graph.reachable_paths:
+                continue
+            if document.disposition == "known-existing":
+                findings.append(
+                    _finding(
+                        "source-coverage-lost",
+                        "WARN",
+                        relative_path,
+                        "Historical document is no longer connected to the rooted Wiki graph.",
+                        hint="Restore or confirm its Wiki coverage relationship.",
+                    )
+                )
+            else:
+                findings.append(
+                    _finding(
+                        "source-island",
+                        "WARN",
+                        relative_path,
+                        "Historical document is not connected to the rooted Wiki graph.",
+                        hint="Link it into the Wiki graph, ingest it, or explicitly ignore it.",
+                    )
+                )
             continue
         findings.append(
             _finding(
@@ -804,8 +839,13 @@ def plan_inventory_initialize(
     observation = scan_inventory(vault, control, resolved_scope)
     if observation.errors or observation.collisions:
         raise InventoryPlanConflict("inventory scan is incomplete or contains path collisions")
+    graph = analyze_knowledge_graph(vault, control / "wiki", observation.documents)
     documents = {
-        path: InventoryDocument("discovered", signature, None)
+        path: InventoryDocument(
+            "known-existing" if path in graph.reachable_paths else "unverified",
+            signature,
+            None,
+        )
         for path, signature in observation.documents.items()
     }
     baseline = InventoryBaseline(
@@ -828,7 +868,9 @@ def plan_inventory_initialize(
         expected_inventory_checksum=None,
         plan_checksum=plan_checksum,
         idempotency_key=_digest_payload({"kind": "inventory-initialize", "plan": plan_checksum}),
-        candidate_count=len(documents),
+        candidate_count=sum(
+            document.disposition == "discovered" for document in documents.values()
+        ),
         confirmable=True,
     )
 

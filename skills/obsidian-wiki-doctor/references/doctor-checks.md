@@ -37,6 +37,12 @@ The source of truth for detection is scripts/obsidian_wiki_doctor.py. This file 
 - `missing-roadmap`: the control-center roadmap is missing after initialization.
 - `missing-knowledge-map`: the control-center knowledge map is missing after initialization.
 - `broken-internal-link`: a non-index wiki page links to a missing internal target.
+- `orphan-wiki-page`: a Wiki page is not reachable from `wiki/index.md`.
+- `detached-wiki-component`: two or more Wiki pages form a component detached from `wiki/index.md`.
+- `source-island`: an `unverified` historical Vault document is outside the rooted Wiki graph.
+- `source-coverage-lost`: a `known-existing` historical document lost its rooted Wiki connection.
+- `uningested-source`: a post-baseline `discovered` document lacks complete processed evidence.
+- `stale-ingested-source`: a processed source changed after ingest.
 - `torn-change-log-tail`: an incomplete final JSONL line was ignored while the valid prefix remained usable.
 - `pending-source-without-active-operation`: a pending source has no active ingest operation explaining it.
 - `failed-source`: a source registry record is marked failed.
@@ -55,6 +61,8 @@ The source of truth for detection is scripts/obsidian_wiki_doctor.py. This file 
 
 ## Report Vocabulary
 
+- `known-existing`: present at initial baseline time and reachable from `wiki/index.md`.
+- `unverified`: present at initial baseline time but not connected to the rooted graph; it is not automatically a new ingest candidate.
 - `not-applicable`: a score dimension was skipped because the required input signal does not exist yet.
 - `no-findings`: no blocking doctor findings were detected.
 

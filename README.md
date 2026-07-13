@@ -183,6 +183,24 @@ target, requires preview plus exact checksum confirmation, and never deletes the
 origin. `raw/` is not a candidate inbox. Safe publication requires hard-link
 no-replace support (for example NTFS or ext4); automatic discovery remains v0.3 Inventory work.
 
+### v0.3 Inventory and rooted graph discovery
+
+Inventory initialization treats the current Vault as history, not as a giant new-file
+backlog. Existing documents reachable from `wiki/index.md` through Markdown links or
+WikiLinks are recorded as `known-existing`; disconnected historical documents are
+recorded as `unverified`. Doctor reports those historical gaps as `source-island`,
+while a `known-existing` document whose relationship disappears becomes
+`source-coverage-lost`. Files first observed after the confirmed baseline are
+`discovered` and produce `uningested-source` until processed or ignored.
+The initialization preview exposes deterministic `disposition_counts` so the
+historical classification can be reviewed before confirmation.
+
+Doctor also reports each `orphan-wiki-page` and groups mutually connected pages that
+remain outside the rooted graph as a `detached-wiki-component`. These findings lower
+the existing navigation or ingest-traceability dimensions without changing score
+version 1. Graph analysis reads only ordinary Inventory documents plus Wiki pages;
+sensitive and excluded scopes stay unread.
+
 ### v0.2 Phase 4 read-only consistency checks
 
 Doctor now reads the Phase 2/3 state layer and checks registries, managed pages,
@@ -297,6 +315,7 @@ tests/
 - [Safety](docs/safety.md)
 - [Development Plan](docs/development-plan.md)
 - [Test Prompts](tests/prompts.md)
+- [Inventory graph manual test (Chinese)](docs/inventory-graph-manual-test.zh.md)
 
 ## Status
 

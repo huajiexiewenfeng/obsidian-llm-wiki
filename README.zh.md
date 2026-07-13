@@ -284,12 +284,26 @@ tests/
 - [Safety](docs/safety.md)
 - [Development Plan](docs/development-plan.md)
 - [Test Prompts](tests/prompts.md)
+- [Inventory 主图与孤岛人工测试](docs/inventory-graph-manual-test.zh.md)
 
 ## 当前状态
 
 项目目前处于早期文档型 MVP 阶段。
 
 当前重点是先把 skill 边界、工作流、输出格式和安全规则写清楚。Doctor 脚本是第一批确定性的校验与评分能力；更多确定性辅助脚本会在手工流程稳定后再加入。
+
+## v0.3 Inventory 与主图可达性
+
+首次确认 Inventory 基线时，系统不会把 Vault 中全部历史文件都当作新增任务：
+
+- 能从 `wiki/index.md` 经 Markdown 链接或 WikiLink 到达的历史文档记为 `known-existing`；
+- 初始化时已经存在、但不在主图中的文档记为 `unverified`，Doctor 报告 `source-island`；
+- 原本属于 `known-existing`、后来失去图谱连接的文档报告 `source-coverage-lost`；
+- 基线确认后才出现的文件记为 `discovered`，并报告 `uningested-source`；
+- Wiki 内不能从 `index.md` 到达的页面报告 `orphan-wiki-page`，互相连接但整体脱离主图的页面组报告 `detached-wiki-component`。
+
+孤岛会降低现有导航或摄入可追踪性评分，但不会自动进入摄入队列。图分析只读取 Inventory 允许的普通文档与 Wiki 页面，不打开排除范围或敏感范围。
+初始化预览通过 `disposition_counts` 展示各状态数量，用户可在确认写入基线前核对分类结果。
 
 ## License
 

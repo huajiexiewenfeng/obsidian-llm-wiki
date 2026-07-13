@@ -167,6 +167,39 @@ class RootResolutionTests(unittest.TestCase):
 
 
 class InventoryDoctorIntegrationTests(unittest.TestCase):
+    def test_doctor_reports_detached_wiki_component_and_reduces_navigation_score(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control = make_phase3_control_center(Path(tmp))
+            (control / "wiki/topics/topic.md").unlink()
+            write(
+                control / "wiki/index.md",
+                projection_page(render_wiki_index({})) + "\n[Log](log.md)\n",
+            )
+            write(control / "wiki/orphan-a.md", "[[orphan-b]]")
+            write(control / "wiki/orphan-b.md", "[[orphan-a]]")
+            write_inventory_baseline(control, {})
+
+            result = run_doctor(
+                "validate", "--root", str(control), "--format", "json", "--fail-on", "none"
+            )
+            score_result = run_doctor("score", "--root", str(control), "--format", "json")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        findings = json.loads(result.stdout)
+        orphan_paths = {
+            item["path"] for item in findings if item["check"] == "orphan-wiki-page"
+        }
+        self.assertEqual(orphan_paths, {"orphan-a.md", "orphan-b.md"})
+        components = [
+            item for item in findings if item["check"] == "detached-wiki-component"
+        ]
+        self.assertEqual(len(components), 1)
+        self.assertEqual(components[0]["count"], 2)
+        dimensions = {
+            item["name"]: item for item in json.loads(score_result.stdout)["dimensions"]
+        }
+        self.assertEqual(dimensions["Navigation and discoverability"]["score"], 15)
+
     def test_doctor_reports_uningested_vault_document_without_writing(self):
         with tempfile.TemporaryDirectory() as tmp:
             control = make_phase3_control_center(Path(tmp))

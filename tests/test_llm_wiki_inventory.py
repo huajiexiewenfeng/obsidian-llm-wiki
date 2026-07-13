@@ -305,6 +305,63 @@ class InventoryInspectionTests(unittest.TestCase):
         self.assertEqual(result.findings[0].path, "notes/new.md")
         self.assertTrue(result.complete)
 
+    def test_unverified_historical_document_is_source_island_not_uningested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            control = vault / CONTROL_CENTER_NAME
+            source = vault / "notes/island.md"
+            write_file(source)
+            write_file(control / "wiki/index.md", b"# Index")
+            scope = default_inventory_scope(CONTROL_CENTER_NAME)
+            write_baseline(
+                control,
+                scope,
+                {
+                    "notes/island.md": InventoryDocument(
+                        "unverified",
+                        ObservedSignature(**file_fingerprint(source)),
+                        None,
+                    )
+                },
+            )
+            write_registry(control / ".meta/sources.json", {})
+            write_registry(control / ".meta/pages.json", {})
+
+            result = inspect_inventory(vault, control)
+
+        self.assertEqual([item.check for item in result.findings], ["source-island"])
+        self.assertEqual(result.findings[0].path, "notes/island.md")
+
+    def test_known_existing_document_with_removed_edge_reports_coverage_lost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            control = vault / CONTROL_CENTER_NAME
+            source = vault / "notes/covered.md"
+            write_file(source)
+            write_file(control / "wiki/index.md", b"# Index")
+            scope = default_inventory_scope(CONTROL_CENTER_NAME)
+            write_baseline(
+                control,
+                scope,
+                {
+                    "notes/covered.md": InventoryDocument(
+                        "known-existing",
+                        ObservedSignature(**file_fingerprint(source)),
+                        None,
+                    )
+                },
+            )
+            write_registry(control / ".meta/sources.json", {})
+            write_registry(control / ".meta/pages.json", {})
+
+            result = inspect_inventory(vault, control)
+
+        self.assertEqual(
+            [item.check for item in result.findings],
+            ["source-coverage-lost"],
+        )
+        self.assertEqual(result.findings[0].path, "notes/covered.md")
+
     def test_complete_registry_evidence_marks_document_processed(self):
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)

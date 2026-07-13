@@ -71,14 +71,20 @@ class InventoryCliTests(unittest.TestCase):
             vault, control = make_vault(Path(tmp))
             state = run_cli("state", "init", "--root", str(vault), "--confirm", "--format", "json")
             self.assertEqual(state.returncode, 0, state.stderr)
-            write(vault / "notes/new.md", "new")
+            write(vault / "notes/covered.md", "covered history")
+            write(vault / "notes/island.md", "unlinked history")
+            write(control / "wiki/index.md", "# Index\n[covered](../../notes/covered.md)\n")
 
             preview = run_cli("inventory", "initialize", "--root", str(vault), "--format", "json")
             self.assertEqual(preview.returncode, 1, preview.stderr)
             plan = json.loads(preview.stdout)
             self.assertTrue(plan["confirmation_required"])
             self.assertTrue(plan["confirmable"])
-            self.assertEqual(plan["candidate_count"], 1)
+            self.assertEqual(plan["candidate_count"], 0)
+            self.assertEqual(
+                plan["disposition_counts"],
+                {"known-existing": 1, "unverified": 1},
+            )
             self.assertFalse((control / ".meta/inventory.json").exists())
 
             missing_checksum = run_cli(
@@ -95,7 +101,14 @@ class InventoryCliTests(unittest.TestCase):
             result = json.loads(confirmed.stdout)
             self.assertEqual(result["status"], "completed")
             baseline = json.loads((control / ".meta/inventory.json").read_text(encoding="utf-8"))
-            self.assertEqual(baseline["documents"]["notes/new.md"]["disposition"], "discovered")
+            self.assertEqual(
+                baseline["documents"]["notes/covered.md"]["disposition"],
+                "known-existing",
+            )
+            self.assertEqual(
+                baseline["documents"]["notes/island.md"]["disposition"],
+                "unverified",
+            )
             operations = json.loads((control / ".meta/operations.json").read_text(encoding="utf-8"))["records"]
             operation = operations[result["operation_id"]]
             self.assertEqual(operation["kind"], "inventory-initialize")
@@ -208,7 +221,7 @@ class InventoryCliTests(unittest.TestCase):
             after_ignore = run_cli("inventory", "inspect", "--root", str(vault), "--format", "json")
             ignored_paths = {
                 item["path"] for item in json.loads(after_ignore.stdout)["findings"]
-                if item["check"] == "uningested-source"
+                if item["check"] == "source-island"
             }
             self.assertEqual(ignored_paths, {"notes/b.md"})
 
