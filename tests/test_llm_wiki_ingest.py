@@ -36,7 +36,7 @@ def valid_payload() -> dict[str, object]:
     return {
         "schema_version": 1,
         "source": {
-            "path": "C:/materials/example.md",
+            "path": str((Path(tempfile.gettempdir()) / "materials" / "example.md").resolve()),
             "source_type": "markdown",
             "mode": "summary-ingest",
             "fingerprint": {"size": 5, "mtime_ns": 123456789},

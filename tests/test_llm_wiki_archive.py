@@ -1,5 +1,4 @@
 import errno
-import os
 import sys
 import tempfile
 import unittest
@@ -332,14 +331,12 @@ class ArchivePublicationTests(unittest.TestCase):
     def test_publish_reports_residual_temp_without_rolling_back_target(self):
         with tempfile.TemporaryDirectory() as tmp:
             prepared = self._prepared(tmp)
-            real_unlink = os.unlink
 
-            def fail_only_for_staging(path, *args, **kwargs):
-                if Path(path) == prepared.staging_path:
-                    raise PermissionError("busy")
-                return real_unlink(path, *args, **kwargs)
-
-            with patch("llm_wiki_core.archive.os.unlink", side_effect=fail_only_for_staging):
+            with patch.object(
+                type(prepared.staging_path),
+                "unlink",
+                side_effect=PermissionError("busy"),
+            ):
                 result = publish_archive_noreplace(prepared)
 
             self.assertTrue(result.published)
